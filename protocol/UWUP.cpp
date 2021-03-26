@@ -54,5 +54,3 @@ int UWUPSocket::connect(std::string peer_address, int peer_port) {
     // Initiate Handshake
     // TODO
 }
-
-UWUPSocket UWUPSocket::accept() {}
