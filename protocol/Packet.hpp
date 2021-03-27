@@ -20,8 +20,10 @@ struct PacketStruct {
  * A class to handle packet structsa, etc.
  */
 class Packet {
-    /// packed struct data
-    PacketStruct packet_struct;
-
   public:
+    /// packed struct data
+    PacketStruct *packet_struct;
+    /// Total length of packet (length of data + length of header)
+    int packet_length;
+    Packet(char *buffer, int len);
 };

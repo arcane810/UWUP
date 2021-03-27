@@ -50,7 +50,6 @@ int UWUPSocket::connect(std::string peer_address, int peer_port) {
     this->peer_port = peer_port;
     std::mt19937 rng(
         std::chrono::steady_clock::now().time_since_epoch().count());
-    seq_number = rng() % 100000000;
     // Initiate Handshake
     // TODO
 }
