@@ -25,5 +25,6 @@ class Packet {
     PacketStruct *packet_struct;
     /// Total length of packet (length of data + length of header)
     int packet_length;
+
     Packet(char *buffer, int len);
 };

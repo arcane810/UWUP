@@ -1,3 +1,4 @@
+#pragma once
 #include "Packet.hpp"
 #include <map>
 #include <mutex>
@@ -7,14 +8,19 @@
 #include <thread>
 #include <utility>
 
+/**
+ * A class to handle
+ */
 class PortHandler {
     const int MAX_PKT_SIZE = 1024;
     int sockfd;
     /// Data Structure mapping received packets to an address, port pair.
     std::map<std::pair<std::string, int>, std::queue<Packet>> address_map;
+    std::queue<std::pair<std::pair<std::string, int>, Packet>> connect_queue;
     std::thread recvThread;
     std::thread sendThread;
     bool threadEnd;
+    std::mutex m_connect_queue;
     std::mutex m_send_queue;
     std::mutex m_address_map;
     std::queue<std::pair<Packet, std::pair<std::string, int>>> send_queue;
@@ -30,4 +36,6 @@ class PortHandler {
      */
     Packet recvPacketFrom(std::string address, int port);
     void sendPacketTo(Packet packet, std::string address, int port);
+    void makeAddressConnected(std::string address, int port);
+    std::pair<std::pair<std::string, int>, Packet> getNewConnection();
 };

@@ -1,6 +1,7 @@
 #include "PortHandler.hpp"
 
 #include <arpa/inet.h>
+#include <chrono>
 #include <netdb.h>
 #include <sys/types.h>
 
@@ -37,8 +38,15 @@ void PortHandler::recvThreadFunction() {
         // Could be ntohs
         int port = htons(src_addr.sin_port);
         m_address_map.lock();
-        address_map[{address, port}].push(Packet(buff, len));
-        m_address_map.unlock();
+        if (address_map.find({address, port}) != address_map.end()) {
+            address_map[{address, port}].push(Packet(buff, len));
+            m_address_map.unlock();
+        } else {
+            m_address_map.unlock();
+            m_connect_queue.lock();
+            connect_queue.push({{address, port}, Packet(buff, len)});
+            m_connect_queue.unlock();
+        }
 
         if (threadEnd) {
             break;
@@ -81,4 +89,30 @@ PortHandler::~PortHandler() {
     threadEnd = true;
     recvThread.join();
     sendThread.join();
+}
+
+void PortHandler::makeAddressConnected(std::string address, int port) {
+    m_address_map.lock();
+    address_map[{address, port}] = std::queue<Packet>();
+    m_address_map.unlock();
+}
+
+std::pair<std::pair<std::string, int>, Packet> PortHandler::getNewConnection() {
+    auto start = std::chrono::high_resolution_clock::now();
+    while (1) {
+        auto curr = std::chrono::high_resolution_clock::now();
+        if (std::chrono::duration_cast<std::chrono::seconds>(curr - start)
+                .count() > 10) {
+            throw("Accept Timed Out");
+        }
+        m_connect_queue.lock();
+        if (!connect_queue.empty()) {
+            std::pair<std::pair<std::string, int>, Packet> new_connection =
+                connect_queue.front();
+            connect_queue.pop();
+            m_connect_queue.unlock();
+            return new_connection;
+        }
+        m_connect_queue.unlock();
+    }
 }

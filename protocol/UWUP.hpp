@@ -1,4 +1,5 @@
 #pragma once
+#include "PortHandler.hpp"
 #include <queue>
 #include <string>
 #include <sys/socket.h>
@@ -20,7 +21,9 @@ class UWUPSocket {
     /// the peer address
     std::string peer_address;
     /// the peer port
-    int peer_address;
+    int peer_port;
+    /// Port Handler
+    PortHandler *port_handler;
 
   public:
     /**
@@ -31,6 +34,12 @@ class UWUPSocket {
      * Constructor for server socket
      */
     UWUPSocket(int my_port);
+
+    /**
+     * Constructor to create a duplicate socket for a new client
+     */
+    UWUPSocket(int sockfd, std::string peer_address, int peer_port,
+               PortHandler *port_handler);
     /**
      * A function that accepts a connection and returns a connected socket
      */
@@ -38,5 +47,5 @@ class UWUPSocket {
     /**
      * A function that starts a connection with a peer
      */
-    UWUPSocket connect(std::string peer_address, int peer_port);
+    void connect(std::string peer_address, int peer_port);
 };
