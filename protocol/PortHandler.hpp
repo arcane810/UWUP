@@ -2,12 +2,15 @@
 #include "Packet.hpp"
 #include <map>
 #include <mutex>
+#include <condition_variable>
 #include <queue>
 #include <string>
 #include <sys/socket.h>
 #include <thread>
 #include <utility>
 
+
+const int MAX_WAITING_REQUEST = 5;
 /**
  * A class to handle
  */
@@ -21,6 +24,7 @@ class PortHandler {
     std::thread sendThread;
     bool threadEnd;
     std::mutex m_connect_queue;
+    std::condition_variable cv_connect_queue_isEmpty;
     std::mutex m_send_queue;
     std::mutex m_address_map;
     std::queue<std::pair<Packet, std::pair<std::string, int>>> send_queue;

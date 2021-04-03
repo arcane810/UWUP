@@ -2,6 +2,8 @@
 
 #include <arpa/inet.h>
 #include <chrono>
+#include <cstring>
+#include <iostream>
 #include <netdb.h>
 #include <sys/types.h>
 
@@ -34,18 +36,25 @@ void PortHandler::recvThreadFunction() {
                            (socklen_t *)&src_len);
         if (len < 0)
             continue;
+        Packet packet(buff, len);
+        std::cout << packet << std::endl;
+        int port = htons(src_addr.sin_port);
         std::string address = inet_ntoa(src_addr.sin_addr);
         // Could be ntohs
-        int port = htons(src_addr.sin_port);
         m_address_map.lock();
         if (address_map.find({address, port}) != address_map.end()) {
             address_map[{address, port}].push(Packet(buff, len));
             m_address_map.unlock();
         } else {
             m_address_map.unlock();
-            m_connect_queue.lock();
+            // Locks when constructor is called.
+            std::unique_lock<std::mutex> cq_lock(m_connect_queue);
+            if(connect_queue.size() >= MAX_WAITING_REQUEST){
+                // Reject Client
+            }
             connect_queue.push({{address, port}, Packet(buff, len)});
-            m_connect_queue.unlock();
+            cq_lock.unlock();
+            cv_connect_queue_isEmpty.notify_all();
         }
 
         if (threadEnd) {
@@ -97,22 +106,15 @@ void PortHandler::makeAddressConnected(std::string address, int port) {
     m_address_map.unlock();
 }
 
+// Make this blocking somehow? Maybe have a mutex on the length of the queue?
 std::pair<std::pair<std::string, int>, Packet> PortHandler::getNewConnection() {
     auto start = std::chrono::high_resolution_clock::now();
-    while (1) {
-        auto curr = std::chrono::high_resolution_clock::now();
-        if (std::chrono::duration_cast<std::chrono::seconds>(curr - start)
-                .count() > 10) {
-            throw("Accept Timed Out");
-        }
-        m_connect_queue.lock();
-        if (!connect_queue.empty()) {
-            std::pair<std::pair<std::string, int>, Packet> new_connection =
-                connect_queue.front();
-            connect_queue.pop();
-            m_connect_queue.unlock();
-            return new_connection;
-        }
-        m_connect_queue.unlock();
-    }
+    std::unique_lock<std::mutex> cq_lock(m_connect_queue);
+    while(connect_queue.empty())
+        cv_connect_queue_isEmpty.wait(cq_lock);
+    std::pair<std::pair<std::string, int>, Packet> new_connection =
+    connect_queue.front();
+    connect_queue.pop();
+    cq_lock.unlock();
+    return new_connection;
 }

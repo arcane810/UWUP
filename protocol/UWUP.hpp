@@ -45,6 +45,10 @@ class UWUPSocket {
      */
     UWUPSocket accept();
     /**
+     * A function that binds to the local address and marks socket as passive.
+     */
+    void listen();
+    /**
      * A function that starts a connection with a peer
      */
     void connect(std::string peer_address, int peer_port);

@@ -17,6 +17,15 @@ struct PacketStruct {
     char data[];
 } __attribute__((packed));
 
+
+/**
+ * Flag mask values
+ */
+
+const int SYN = 1;
+const int ACK = 2;
+const int FIN = 4;
+
 /**
  * A class to handle packet structsa, etc.
  */
@@ -36,8 +45,12 @@ class Packet {
     uint32_t rwnd;
     /// Data recvd
     // char *data;
+    /// Length of data
+    uint32_t data_len;
+
 
     Packet(char *buffer, int len);
     Packet(uint32_t ack_number, uint32_t seq_number, uint32_t flags, uint32_t rwnd, char* buffer, int len);
+    // ~Packet();
     friend std::ostream& operator<<(std::ostream& os, Packet const& p);
 };
