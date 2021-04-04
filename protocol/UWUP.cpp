@@ -81,7 +81,18 @@ UWUPSocket UWUPSocket::accept() {
         port_handler->getNewConnection();
 
     std::cout << new_connection.first.first << ' ' << new_connection.first.second << new_connection.second << std::endl;
-
+    char msg[] = "nigga nigga book";
+    std::string cli_addr = new_connection.first.first;
+    int cli_port = new_connection.first.second;
+    port_handler->makeAddressConnected(cli_addr, cli_port);
+    Packet packet(1,2,SYN | ACK,4, msg, sizeof(msg));
+    port_handler->sendPacketTo(packet, cli_addr, cli_port);
+    Packet response = port_handler->recvPacketFrom(cli_addr, cli_port);
+    std::cout << response << std::endl;
+    // return
+    // char msg[] = "I whacked so hard I can't feel my left leg";
+    // Packet packet(3+i,4+i,SYN,5+i,msg, sizeof(msg));
+    // port_handler->sendPacketTo(packet, new_connection.first.first, new_connection.first.second);
     // UWUPSocket new_socket =
     //     UWUPSocket(sockfd, new_connection.first.first,
     //                new_connection.first.second, port_handler);

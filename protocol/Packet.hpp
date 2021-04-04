@@ -52,5 +52,6 @@ class Packet {
     Packet(char *buffer, int len);
     Packet(uint32_t ack_number, uint32_t seq_number, uint32_t flags, uint32_t rwnd, char* buffer, int len);
     // ~Packet();
+    std::string getFlagStr(uint32_t flag);
     friend std::ostream& operator<<(std::ostream& os, Packet const& p);
 };

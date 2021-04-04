@@ -36,8 +36,24 @@ Packet::Packet(uint32_t ack_number, uint32_t seq_number, uint32_t flags, uint32_
 // }
 
 
+std::string getFlagStr(uint32_t flag){
+    std::string s;
+    if (flag & SYN)
+    s += "SYN ";
+    if(flag & ACK)
+    s+= "ACK ";
+    if(flag & FIN)
+    s+= "FIN ";
+
+    if(s == ""){
+        s+= "Unknown Flag:";
+        s+= std::to_string(flag);
+    }
+    return s;
+}
+
 std::ostream& operator<<(std::ostream& os, Packet const& p)
 {
-    os << "{\n" << p.ack_number << ' ' << p.seq_number <<  ' ' << p.rwnd << '\n' << p.packet_struct->data << "\n}" << std::endl;
+    os << "{\n" << p.ack_number << ' ' << p.seq_number <<  ' ' << p.rwnd << ' ' << getFlagStr(p.flags) << '\n' << p.packet_struct->data <<  "\n}" << std::endl;
     return os;
 }
