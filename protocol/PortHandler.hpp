@@ -8,6 +8,13 @@
 #include <sys/socket.h>
 #include <thread>
 #include <utility>
+#include <stdexcept>
+
+class timeout_exception : public std::runtime_error {
+  public:
+  timeout_exception():runtime_error("Timeout") {}
+  timeout_exception(const std::string &msg):runtime_error("Timeout:" + msg){}
+};
 
 
 const int MAX_WAITING_REQUEST = 5;

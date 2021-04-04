@@ -22,7 +22,7 @@ Packet PortHandler::recvPacketFrom(std::string address, int port, int time_ms) {
     // if the message accesses are getting messed up, then I shouldn't wait on this one mutex.
     if(address_map[{address, port}].empty()){
         if(cv_address_map_queue_isEmpty[{address, port}].wait_for(am_lock, std::chrono::milliseconds(time_ms)) == std::cv_status::timeout){
-            throw "Timeout Exceeded";
+            throw timeout_exception("recv packet");
         }
     }
     Packet p = address_map[{address, port}].front();
@@ -34,7 +34,7 @@ void PortHandler::sendPacketTo(Packet packet, std::string address, int port) {
     std::unique_lock<std::mutex> sq_lock(m_send_queue);
     send_queue.push({packet, {address, port}});
     sq_lock.unlock();
-    cv_send_queue_isEmpty.notify_all();
+    cv_send_queue_isEmpty.notify_one();
 }
 
 void PortHandler::recvThreadFunction() {

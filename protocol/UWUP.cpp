@@ -33,7 +33,7 @@
 //     this->port_handler = new PortHandler(sockfd);
 // }
 
-UWUPSocket::UWUPSocket(int my_port) : my_port(my_port) {
+UWUPSocket::UWUPSocket() {
 
     if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
         throw("Error creating socket");
@@ -54,14 +54,10 @@ UWUPSocket::UWUPSocket(int sockfd, std::string peer_address, int peer_port,
       port_handler(port_handler) {}
 
 
-/// init the sockaddr_in struct and send handshake.
-void UWUPSocket::connect(std::string peer_address, int peer_port) {
-    this->peer_address = peer_address;
-    this->peer_port = peer_port;
-}
+UWUPSocket::UWUPSocket(const UWUPSocket &old_socket, int seq) : seq(seq) {}
 
-void UWUPSocket::listen() {
-
+void UWUPSocket::listen(int my_port) {
+    this->my_port = my_port;
     is_listen = true;
     struct sockaddr_in servaddr;
 
@@ -76,24 +72,65 @@ void UWUPSocket::listen() {
 }
 
 
+/// init the sockaddr_in struct and send handshake.
+void UWUPSocket::connect(std::string peer_address, int peer_port) {
+    this->peer_address = peer_address;
+    this->peer_port = peer_port;
+    port_handler->makeAddressConnected(peer_address, peer_port);
+
+
+    try
+    {
+        this->seq = rand() % 100;
+        char msg1[] = "SYN packet";
+        Packet synPacket(0, this->seq, SYN , 0, msg1, sizeof(msg1));
+        port_handler->sendPacketTo(synPacket, peer_address, peer_port);
+        Packet synAckPacket = port_handler->recvPacketFrom(peer_address, peer_port, 10000);
+        std::cout << synAckPacket << std::endl;
+        if(!(synAckPacket.flags & (SYN | ACK)) || synAckPacket.ack_number != this->seq)
+            throw connection_exception("invalid handshake packet");
+        char msg2[] = "ACK packet";
+        Packet ackPacket(synAckPacket.seq_number, ++this->seq, ACK, 0, msg2, sizeof(msg2));
+        port_handler->sendPacketTo(ackPacket, peer_address, peer_port);
+    }
+    catch(const std::runtime_error &e)
+    {
+        port_handler->deleteAddressQueue(peer_address, peer_port);
+
+        std::cerr << e.what() << '\n';
+    }
+
+
+}
+
 UWUPSocket UWUPSocket::accept() {
     std::pair<std::pair<std::string, int>, Packet> new_connection =
         port_handler->getNewConnection();
 
     std::cout << new_connection.first.first << ' ' << new_connection.first.second << new_connection.second << std::endl;
-    char msg[] = "nigga nigga book";
     std::string cli_addr = new_connection.first.first;
     int cli_port = new_connection.first.second;
+
+    Packet synPacket = new_connection.second;
+    if(!(synPacket.flags & SYN))
+        throw connection_exception("invalid handshake packet");
+    char msg[] = "SYN | ACK packet";
     port_handler->makeAddressConnected(cli_addr, cli_port);
-    Packet packet(1,2,SYN | ACK,4, msg, sizeof(msg));
-    port_handler->sendPacketTo(packet, cli_addr, cli_port);
-    Packet response = port_handler->recvPacketFrom(cli_addr, cli_port);
-    std::cout << response << std::endl;
-    // return
-    // char msg[] = "I whacked so hard I can't feel my left leg";
-    // Packet packet(3+i,4+i,SYN,5+i,msg, sizeof(msg));
-    // port_handler->sendPacketTo(packet, new_connection.first.first, new_connection.first.second);
-    // UWUPSocket new_socket =
-    //     UWUPSocket(sockfd, new_connection.first.first,
-    //                new_connection.first.second, port_handler);
+
+    int seq_no = rand() % 100;
+    Packet synAckPacket = Packet(synPacket.seq_number,seq_no++ , SYN | ACK, 0, msg, sizeof(msg));
+    port_handler->sendPacketTo(synAckPacket, cli_addr, cli_port);
+
+    try
+    {
+        Packet ackpacket = port_handler->recvPacketFrom(cli_addr, cli_port, 10000);
+        std::cout << ackpacket << std::endl;
+    }
+    catch(const std::exception& e)
+    {
+        port_handler->deleteAddressQueue(cli_addr, cli_port);
+
+        std::cerr << e.what() << '\n';
+    }
+    return UWUPSocket(*this,seq_no);
 }

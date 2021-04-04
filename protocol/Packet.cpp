@@ -25,6 +25,7 @@ Packet::Packet(uint32_t ack_number, uint32_t seq_number, uint32_t flags, uint32_
     packet_struct->seq_number = seq_number;
     packet_struct->flags = flags;
     packet_struct->rwnd = rwnd;
+    if(len > 0)
     memcpy(packet_struct->data, buffer, len);
     // data = (char *)malloc(len * sizeof(char) - 13);
     // memcpy(data, packet_struct->data,len * sizeof(char) - 13);
