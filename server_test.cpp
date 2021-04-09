@@ -14,9 +14,11 @@ int main() {
     int my_port = 8080;
     UWUPSocket socket;
     socket.listen(my_port);
+    // return 1;
     int i = 0;
-    while(1){
+    while (1) {
         UWUPSocket newSock = socket.accept();
+        std::cout << newSock << std::endl;
         std::cout << "Number of clients " << i << std::endl;
     }
 

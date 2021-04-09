@@ -1,18 +1,17 @@
 #pragma once
 #include "PortHandler.hpp"
 #include <queue>
+#include <stdexcept>
 #include <string>
 #include <sys/socket.h>
 #include <sys/types.h>
-#include <stdexcept>
-
 
 class connection_exception : public std::runtime_error {
   public:
-  connection_exception():runtime_error("connection exception") {}
-  connection_exception(const std::string &msg):runtime_error("connection exception:" + msg){}
+    connection_exception() : runtime_error("connection exception") {}
+    connection_exception(const std::string &msg)
+        : runtime_error("connection exception:" + msg) {}
 };
-
 
 /**
  * Socket Class for the UWUP
@@ -34,6 +33,8 @@ class UWUPSocket {
     /// Port Handler
     PortHandler *port_handler;
 
+    friend std::ostream &operator<<(std::ostream &os, UWUPSocket const &sock);
+
   public:
     /**
      * Constructor for client socket
@@ -48,12 +49,8 @@ class UWUPSocket {
      * Constructor to create a duplicate socket for a new client
      */
     UWUPSocket(int sockfd, std::string peer_address, int peer_port,
-               PortHandler *port_handler);
+               PortHandler *port_handler, int seq);
 
-    /**
-     * Constructor to create a duplicate socket for a new client
-     */
-    UWUPSocket(const UWUPSocket &old_socket,int seq = -1);
     /**
      * A function that accepts a connection and returns a connected socket
      */
