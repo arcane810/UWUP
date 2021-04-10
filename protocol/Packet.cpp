@@ -2,7 +2,7 @@
 #include <cstring>
 #include <stdlib.h>
 
-Packet::Packet(char *buffer, int len) {
+Packet::Packet(const char *buffer, int len) {
     packet_length = len;
     data_len = len - sizeof(PacketStruct);
     packet_struct = (PacketStruct *)malloc(len);
@@ -17,44 +17,46 @@ Packet::Packet(char *buffer, int len) {
     // memcpy(data, packet_struct->data,len * sizeof(char) - 13);
 }
 
-Packet::Packet(uint32_t ack_number, uint32_t seq_number, uint32_t flags, uint32_t rwnd, char* buffer, int len) : ack_number(ack_number), seq_number(seq_number), flags(flags), rwnd(rwnd) {
-    packet_length = sizeof(PacketStruct)+len;
+Packet::Packet(uint32_t ack_number, uint32_t seq_number, uint32_t flags,
+               uint32_t rwnd, char *buffer, int len)
+    : ack_number(ack_number), seq_number(seq_number), flags(flags), rwnd(rwnd) {
+    packet_length = sizeof(PacketStruct) + len;
     data_len = len;
-    packet_struct = (PacketStruct *) malloc(13 + len);
+    packet_struct = (PacketStruct *)malloc(13 + len);
     packet_struct->ack_number = ack_number;
     packet_struct->seq_number = seq_number;
     packet_struct->flags = flags;
     packet_struct->rwnd = rwnd;
-    if(len > 0)
-    memcpy(packet_struct->data, buffer, len);
+    if (len > 0)
+        memcpy(packet_struct->data, buffer, len);
     // data = (char *)malloc(len * sizeof(char) - 13);
     // memcpy(data, packet_struct->data,len * sizeof(char) - 13);
 }
-
 
 // Packet::~Packet(){
 //     delete packet_struct;
 // }
 
-
-std::string getFlagStr(uint32_t flag){
+std::string getFlagStr(uint32_t flag) {
     std::string s;
     if (flag & SYN)
-    s += "SYN ";
-    if(flag & ACK)
-    s+= "ACK ";
-    if(flag & FIN)
-    s+= "FIN ";
+        s += "SYN ";
+    if (flag & ACK)
+        s += "ACK ";
+    if (flag & FIN)
+        s += "FIN ";
 
-    if(s == ""){
-        s+= "Unknown Flag:";
-        s+= std::to_string(flag);
+    if (s == "") {
+        s += "Unknown Flag:";
+        s += std::to_string(flag);
     }
     return s;
 }
 
-std::ostream& operator<<(std::ostream& os, Packet const& p)
-{
-    os << "{\n" << p.ack_number << ' ' << p.seq_number <<  ' ' << p.rwnd << ' ' << getFlagStr(p.flags) << '\n' << p.packet_struct->data <<  "\n}" << std::endl;
+std::ostream &operator<<(std::ostream &os, Packet const &p) {
+    os << "{\n"
+       << p.ack_number << ' ' << p.seq_number << ' ' << p.rwnd << ' '
+       << getFlagStr(p.flags) << '\n'
+       << p.packet_struct->data << "\n}" << std::endl;
     return os;
 }

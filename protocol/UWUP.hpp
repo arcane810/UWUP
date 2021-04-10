@@ -32,6 +32,12 @@ class UWUPSocket {
     int peer_port;
     /// Port Handler
     PortHandler *port_handler;
+    /// Send Window
+    std::vector<Packet> send_window;
+    /// Receive Window
+    std::vector<Packet> receive_window;
+    /// Send Queue
+    std::queue<Packet> send_queue;
 
     friend std::ostream &operator<<(std::ostream &os, UWUPSocket const &sock);
 
@@ -40,10 +46,6 @@ class UWUPSocket {
      * Constructor for client socket
      */
     UWUPSocket();
-    /**
-     * Constructor for server socket
-     */
-    UWUPSocket(int my_port);
 
     /**
      * Constructor to create a duplicate socket for a new client
@@ -55,12 +57,20 @@ class UWUPSocket {
      * A function that accepts a connection and returns a connected socket
      */
     UWUPSocket accept();
+
     /**
      * A function that binds to the local address and marks socket as passive.
      */
     void listen(int my_port);
+
     /**
      * A function that starts a connection with a peer
+     * @param peer_address ip of the
      */
     void connect(std::string peer_address, int peer_port);
+
+    /**
+     * Function to send the packet to the connected peer
+     */
+    void send(char *data, int len);
 };

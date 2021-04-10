@@ -1,6 +1,8 @@
 #include <cstdint>
 #include <iostream>
 
+const int MAX_PACKET_SIZE = 1024;
+
 /**
  * A structure to store the packed structure
  */
@@ -16,7 +18,6 @@ struct PacketStruct {
     /// Variable Size data array
     char data[];
 } __attribute__((packed));
-
 
 /**
  * Flag mask values
@@ -48,10 +49,10 @@ class Packet {
     /// Length of data
     uint32_t data_len;
 
-
-    Packet(char *buffer, int len);
-    Packet(uint32_t ack_number, uint32_t seq_number, uint32_t flags, uint32_t rwnd, char* buffer, int len);
+    Packet(const char *buffer, int len);
+    Packet(uint32_t ack_number, uint32_t seq_number, uint32_t flags,
+           uint32_t rwnd, char *buffer, int len);
     // ~Packet();
     std::string getFlagStr(uint32_t flag);
-    friend std::ostream& operator<<(std::ostream& os, Packet const& p);
+    friend std::ostream &operator<<(std::ostream &os, Packet const &p);
 };
