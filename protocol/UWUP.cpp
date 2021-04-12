@@ -43,6 +43,54 @@ void UWUPSocket::listen(int port) {
     }
 }
 
+int UWUPSocket::windowSize() { return 20; }
+
+void UWUPSocket::selectiveRepeat() {
+    int base = 0;
+    while (1) {
+        // update packet status when packets are received
+
+        int num_packets = send_window.size();
+        std::unique_lock<std::mutex> sq_lock(m_send_queue);
+        if (base - num_packets == 0) {
+            cv_send_queue_isEmpty.wait(sq_lock);
+        }
+        while (send_window[base].second == ACKED) {
+            base++;
+            Packet new_packet = send_queue.front();
+            send_queue.pop();
+            send_window.push_back({new_packet, 0});
+        }
+        sq_lock.unlock();
+
+        int window_size = std::min(num_packets - base, windowSize());
+
+        for (int i = base; i < base + window_size; i++) {
+            Packet packet = send_window[i].first;
+            int64_t time_sent = send_window[i].second;
+            if (packet.status == NOT_SENT) {
+                send_window[i].second =
+                    std::chrono::steady_clock::now().time_since_epoch().count();
+                send_window[i].first.status = NOT_ACKED;
+                port_handler->sendPacketTo(packet, peer_address, peer_port);
+            } else if (packet.status == NOT_ACKED) {
+                if (std::chrono::steady_clock::now()
+                            .time_since_epoch()
+                            .count() -
+                        time_sent >
+                    TIMEOUT) {
+                    send_window[i].second = std::chrono::steady_clock::now()
+                                                .time_since_epoch()
+                                                .count();
+                    port_handler->sendPacketTo(packet, peer_address, peer_port);
+                }
+            } else if (packet.status == ACKED) {
+                continue;
+            }
+        }
+    }
+}
+
 /// init the sockaddr_in struct and send handshake.
 void UWUPSocket::connect(std::string peer_address, int peer_port) {
     this->peer_address = peer_address;

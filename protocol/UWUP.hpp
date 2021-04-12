@@ -1,5 +1,8 @@
 #pragma once
 #include "PortHandler.hpp"
+#include <chrono>
+#include <condition_variable>
+#include <mutex>
 #include <queue>
 #include <stdexcept>
 #include <string>
@@ -12,6 +15,8 @@ class connection_exception : public std::runtime_error {
     connection_exception(const std::string &msg)
         : runtime_error("connection exception:" + msg) {}
 };
+
+const int32_t TIMEOUT = 100000;
 
 /**
  * Socket Class for the UWUP
@@ -33,13 +38,23 @@ class UWUPSocket {
     /// Port Handler
     PortHandler *port_handler;
     /// Send Window
-    std::vector<Packet> send_window;
+    std::vector<std::pair<Packet, int64_t>> send_window;
     /// Receive Window
     std::vector<Packet> receive_window;
     /// Send Queue
     std::queue<Packet> send_queue;
+    /// Receive Queue
+    std::queue<Packet> receive_queue;
+    /// mutex for send queue access
+    std::mutex m_send_queue;
+    /// CV for send queue
+    std::condition_variable cv_send_queue_isEmpty;
 
     friend std::ostream &operator<<(std::ostream &os, UWUPSocket const &sock);
+
+    void selectiveRepeat();
+
+    int windowSize();
 
   public:
     /**
