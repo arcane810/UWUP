@@ -43,27 +43,52 @@ void UWUPSocket::listen(int port) {
     }
 }
 
+UWUPSocket::UWUPSocket(const UWUPSocket &sock) {
+    sockfd = sock.sockfd;
+    peer_address = sock.peer_address;
+    peer_port = sock.peer_port;
+    port_handler = sock.port_handler;
+    seq = sock.seq;
+}
+
+void UWUPSocket::selectiveRepeatReceive() {
+    while (1) {
+        Packet new_packet =
+            port_handler->recvPacketFrom(peer_address, peer_port);
+        if ()
+    }
+}
+
 int UWUPSocket::windowSize() { return 20; }
 
-void UWUPSocket::selectiveRepeat() {
+void UWUPSocket::selectiveRepeatSend() {
     int base = 0;
+    int front = 0;
+    int num_packets = 0;
     while (1) {
-        // update packet status when packets are received
-
-        int num_packets = send_window.size();
         std::unique_lock<std::mutex> sq_lock(m_send_queue);
-        if (base - num_packets == 0) {
+        if (front == base) {
             cv_send_queue_isEmpty.wait(sq_lock);
-        }
-        while (send_window[base].second == ACKED) {
-            base++;
             Packet new_packet = send_queue.front();
             send_queue.pop();
-            send_window.push_back({new_packet, 0});
+            send_window[front % MAX_SEND_WINDOW] = {new_packet, 0};
+            num_packets++;
+            front = (front + 1) % MAX_PACKET_SIZE;
+        }
+        while (send_window[base].second == ACKED) {
+            base = (base + 1) % MAX_SEND_WINDOW;
+            if (front != base - 1) {
+                Packet new_packet = send_queue.front();
+                send_queue.pop();
+                send_window[front % MAX_SEND_WINDOW] = {new_packet, 0};
+                num_packets++;
+                front = (front + 1) % MAX_PACKET_SIZE;
+                // cv_is_full notify?
+            }
         }
         sq_lock.unlock();
 
-        int window_size = std::min(num_packets - base, windowSize());
+        int window_size = std::min(num_packets, windowSize());
 
         for (int i = base; i < base + window_size; i++) {
             Packet packet = send_window[i].first;
@@ -85,6 +110,7 @@ void UWUPSocket::selectiveRepeat() {
                     port_handler->sendPacketTo(packet, peer_address, peer_port);
                 }
             } else if (packet.status == ACKED) {
+                num_packets--;
                 continue;
             }
         }

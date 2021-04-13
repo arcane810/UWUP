@@ -17,6 +17,7 @@ class connection_exception : public std::runtime_error {
 };
 
 const int32_t TIMEOUT = 100000;
+const int32_t MAX_SEND_WINDOW = 1000;
 
 /**
  * Socket Class for the UWUP
@@ -52,7 +53,8 @@ class UWUPSocket {
 
     friend std::ostream &operator<<(std::ostream &os, UWUPSocket const &sock);
 
-    void selectiveRepeat();
+    void selectiveRepeatSend();
+    void selectiveRepeatReceive();
 
     int windowSize();
 
@@ -61,6 +63,11 @@ class UWUPSocket {
      * Constructor for client socket
      */
     UWUPSocket();
+    /**
+     * Copy Constructor for client socket since we utilize unmovable/uncopyable
+     * members
+     */
+    UWUPSocket(const UWUPSocket &sock);
 
     /**
      * Constructor to create a duplicate socket for a new client
