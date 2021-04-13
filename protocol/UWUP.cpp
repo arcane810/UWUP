@@ -55,65 +55,86 @@ void UWUPSocket::selectiveRepeatReceive() {
     while (1) {
         Packet new_packet =
             port_handler->recvPacketFrom(peer_address, peer_port);
-        if ()
+        if (new_packet.flags || ACK) {
+            std::unique_lock<std::mutex> send_window_lock(m_send_window);
+            int pk_no = seq - new_packet.ack_number;
+            send_window[pk_no].first.status = ACKED;
+        }
     }
 }
 
-int UWUPSocket::windowSize() { return 20; }
+int UWUPSocket::windowSize() {
+    std::unique_lock<std::mutex> window_size_lock(m_window_size);
+    int size = 20;
+    window_size_lock.unlock();
+    return size;
+}
 
 void UWUPSocket::selectiveRepeatSend() {
     int base = 0;
     int front = 0;
     int num_packets = 0;
     while (1) {
-        std::unique_lock<std::mutex> sq_lock(m_send_queue);
-        if (front == base) {
-            cv_send_queue_isEmpty.wait(sq_lock);
-            Packet new_packet = send_queue.front();
-            send_queue.pop();
-            send_window[front % MAX_SEND_WINDOW] = {new_packet, 0};
-            num_packets++;
-            front = (front + 1) % MAX_PACKET_SIZE;
-        }
-        while (send_window[base].second == ACKED) {
+        std::unique_lock<std::mutex> send_window_lock(m_send_window);
+        // Remove packets that have been ACKd from window
+        while (send_window[base].first.status == ACKED) {
+            send_window[base].first.status = INACTIVE;
             base = (base + 1) % MAX_SEND_WINDOW;
-            if (front != base - 1) {
+            num_packets--;
+        }
+        send_window_lock.unlock();
+
+        std::unique_lock<std::mutex> send_queue_lock(m_send_queue);
+        // If we have no packets that need to be serviced, wait till
+        // application layer sends packets
+        if (num_packets == 0 && send_queue.empty())
+            cv_send_queue_isEmpty.wait(send_queue_lock);
+        std::unique_lock<std::mutex> window_size_lock(m_window_size,
+                                                      std::defer_lock);
+        std::lock(send_window_lock, window_size_lock);
+        int window_size = windowSize();
+        // Add packets to window while we have packets from application
+        // layer and window isn't full
+        while (!send_queue.empty() && num_packets < window_size) {
+            if (send_window[front].first.status == INACTIVE) {
                 Packet new_packet = send_queue.front();
                 send_queue.pop();
-                send_window[front % MAX_SEND_WINDOW] = {new_packet, 0};
+                send_window[front] = {new_packet, 0};
                 num_packets++;
                 front = (front + 1) % MAX_PACKET_SIZE;
-                // cv_is_full notify?
+            } else {
+                // Should never reach here if window size is correct
+                throw std::runtime_error(
+                    "Packet count doesn't match window status");
             }
         }
-        sq_lock.unlock();
+        send_window_lock.unlock();
+        window_size_lock.unlock();
 
-        int window_size = std::min(num_packets, windowSize());
-
+        send_window_lock.lock();
         for (int i = base; i < base + window_size; i++) {
-            Packet packet = send_window[i].first;
-            int64_t time_sent = send_window[i].second;
-            if (packet.status == NOT_SENT) {
-                send_window[i].second =
-                    std::chrono::steady_clock::now().time_since_epoch().count();
-                send_window[i].first.status = NOT_ACKED;
+            int window_position = i % MAX_SEND_WINDOW;
+            Packet packet = send_window[window_position].first;
+            int64_t time_sent = send_window[window_position].second;
+            int64_t time_now =
+                std::chrono::steady_clock::now().time_since_epoch().count();
+            if (packet.status == INACTIVE) {
+                break;
+            } else if (packet.status == NOT_SENT) {
+                send_window[window_position].second = time_now;
+                send_window[window_position].first.status = NOT_ACKED;
                 port_handler->sendPacketTo(packet, peer_address, peer_port);
             } else if (packet.status == NOT_ACKED) {
-                if (std::chrono::steady_clock::now()
-                            .time_since_epoch()
-                            .count() -
-                        time_sent >
-                    TIMEOUT) {
-                    send_window[i].second = std::chrono::steady_clock::now()
-                                                .time_since_epoch()
-                                                .count();
+                int64_t time_since_in_ms = (time_now - time_sent) / 1'000'000;
+                if (time_since_in_ms > TIMEOUT) {
+                    send_window[window_position].second = time_now;
                     port_handler->sendPacketTo(packet, peer_address, peer_port);
                 }
             } else if (packet.status == ACKED) {
                 num_packets--;
-                continue;
             }
         }
+        send_window_lock.unlock();
     }
 }
 
@@ -175,6 +196,7 @@ UWUPSocket UWUPSocket::accept() {
     port_handler->makeAddressConnected(cli_addr, cli_port);
 
     int seq_no = rand() % 100;
+    // Retry if packet is dropped.
     Packet synAckPacket =
         Packet(synPacket.seq_number, seq_no++, SYN | ACK, 0, msg, sizeof(msg));
     port_handler->sendPacketTo(synAckPacket, cli_addr, cli_port);

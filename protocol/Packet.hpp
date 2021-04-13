@@ -27,7 +27,7 @@ const int SYN = 1;
 const int ACK = 2;
 const int FIN = 4;
 
-enum status { ACKED, NOT_ACKED, NOT_SENT };
+enum status { ACKED, NOT_ACKED, NOT_SENT, INACTIVE };
 
 /**
  * A class to handle packet structsa, etc.
@@ -51,7 +51,7 @@ class Packet {
     /// Length of data
     uint32_t data_len;
     /// Status of Packed
-    uint32_t status = NOT_ACKED;
+    uint32_t status = INACTIVE;
 
     Packet(const char *buffer, int len);
     Packet(uint32_t ack_number, uint32_t seq_number, uint32_t flags,

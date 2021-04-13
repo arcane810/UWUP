@@ -48,6 +48,10 @@ class UWUPSocket {
     std::queue<Packet> receive_queue;
     /// mutex for send queue access
     std::mutex m_send_queue;
+    /// mutex for send queue access
+    std::mutex m_send_window;
+    /// mutex for recieve window
+    std::mutex m_window_size;
     /// CV for send queue
     std::condition_variable cv_send_queue_isEmpty;
 
