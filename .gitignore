@@ -1,3 +1,5 @@
 /.vscode
 *.out
 makefile
+server_test
+client_test
