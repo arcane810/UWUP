@@ -16,8 +16,8 @@ class connection_exception : public std::runtime_error {
         : runtime_error("connection exception:" + msg) {}
 };
 
-const int32_t TIMEOUT = 100000;
-const int32_t MAX_SEND_WINDOW = 1000;
+const int32_t TIMEOUT = 1000;
+const int32_t MAX_SEND_WINDOW = 10;
 
 /**
  * Socket Class for the UWUP
@@ -53,6 +53,8 @@ class UWUPSocket {
     std::mutex m_window_size;
     /// CV for send queue
     std::condition_variable cv_send_queue_isEmpty;
+    /// CV for recv queue
+    std::condition_variable cv_receive_queue_isFull;
 
     friend std::ostream &operator<<(std::ostream &os, UWUPSocket const &sock);
 
@@ -62,7 +64,7 @@ class UWUPSocket {
     int windowSize();
 
   public:
-      /// Port Handler
+    /// Port Handler
     PortHandler *port_handler;
     /// the peer address
     std::string peer_address;
@@ -104,4 +106,8 @@ class UWUPSocket {
      * Function to send the packet to the connected peer
      */
     void send(char *data, int len);
+    /**
+     * Function to send the packet to the connected peer
+     */
+    void recv(char *data, int len);
 };

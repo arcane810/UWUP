@@ -57,34 +57,35 @@ UWUPSocket::UWUPSocket(const UWUPSocket &sock) {
 void UWUPSocket::selectiveRepeatReceive() {
 
     while (1) {
-        std::cout << "Waiting for Packets" << std::endl;
         Packet new_packet =
             port_handler->recvPacketFrom(peer_address, peer_port);
-        std::cout << "Got Packets" << std::endl;
-
-        if (new_packet.flags || ACK) {
-            std::cout << "Got ack packet " << new_packet << std::endl;
-            int pk_no = base_seq - new_packet.ack_number;
+        if (new_packet.flags && ACK) {
+            int pk_no = (new_packet.ack_number - base_seq) % MAX_SEND_WINDOW;
+            std::cout << "Got ack packet " << new_packet << pk_no << std::endl;
 
             std::unique_lock<std::mutex> send_window_lock(m_send_window);
             send_window[pk_no].first.status = ACKED;
             send_window_lock.unlock();
-        } else if (new_packet.flags || SYN || new_packet.flags || FIN) {
+        } else if (new_packet.flags && SYN || new_packet.flags && FIN) {
             std::cout << "Unexpected packet\n" << new_packet << std::endl;
         } else {
             std::cout << "Non-Flagged Packet " << new_packet << std::endl;
-
+            if (rand() % 2) {
+                std::cout << "Dropping ACK" << std::endl;
+                continue;
+            }
             char msg[] = "ACK packet";
             Packet resp_packet(new_packet.seq_number, 0, ACK, 20, msg,
                                strlen(msg));
+            port_handler->sendPacketTo(resp_packet, peer_address, peer_port);
         }
     }
 }
 
 int UWUPSocket::windowSize() {
-    std::unique_lock<std::mutex> window_size_lock(m_window_size);
+    // std::unique_lock<std::mutex> window_size_lock(m_window_size);
     int size = 20;
-    window_size_lock.unlock();
+    // window_size_lock.unlock();
     return size;
 }
 
@@ -95,10 +96,13 @@ void UWUPSocket::selectiveRepeatSend() {
     int base = 0;
     int front = 0;
     int num_packets = 0;
+
+    std::cout << "Starting SR" << std::endl;
     while (1) {
         std::unique_lock<std::mutex> send_window_lock(m_send_window);
         // Remove packets that have been ACKd from window
         while (send_window[base].first.status == ACKED) {
+            std::cout << "ACKED!" << base << ' ' << front << std::endl;
             send_window[base].first.status = INACTIVE;
             base = (base + 1) % MAX_SEND_WINDOW;
             num_packets--;
@@ -108,8 +112,10 @@ void UWUPSocket::selectiveRepeatSend() {
         std::unique_lock<std::mutex> send_queue_lock(m_send_queue);
         // If we have no packets that need to be serviced, wait till
         // application layer sends packets
-        if (num_packets == 0 && send_queue.empty())
+        if (num_packets == 0 && send_queue.empty()) {
+            std::cout << "Waiting for Packets to send" << std::endl;
             cv_send_queue_isEmpty.wait(send_queue_lock);
+        }
         std::unique_lock<std::mutex> window_size_lock(m_window_size,
                                                       std::defer_lock);
         std::lock(send_window_lock, window_size_lock);
@@ -119,11 +125,16 @@ void UWUPSocket::selectiveRepeatSend() {
         while (!send_queue.empty() && num_packets < window_size) {
             if (send_window[front].first.status == INACTIVE) {
                 Packet new_packet = send_queue.front();
+                // std::cout << "Packet from queue " << new_packet << base << '
+                // '
+                //           << front << std::endl;
+                new_packet.status = NOT_SENT;
                 send_queue.pop();
                 send_window[front] = {new_packet, 0};
                 num_packets++;
-                front = (front + 1) % MAX_PACKET_SIZE;
+                front = (front + 1) % MAX_SEND_WINDOW;
             } else {
+                std::cout << base << ' ' << front << std::endl;
                 // Should never reach here if window size is correct
                 throw std::runtime_error(
                     "Packet count doesn't match window status");
@@ -131,7 +142,8 @@ void UWUPSocket::selectiveRepeatSend() {
         }
         send_window_lock.unlock();
         window_size_lock.unlock();
-
+        send_queue_lock.unlock();
+        // If seq number not updated, packet is till sent.
         send_window_lock.lock();
         for (int i = base; i < base + window_size; i++) {
             int window_position = i % MAX_SEND_WINDOW;
@@ -144,11 +156,18 @@ void UWUPSocket::selectiveRepeatSend() {
             } else if (packet.status == NOT_SENT) {
                 send_window[window_position].second = time_now;
                 send_window[window_position].first.status = NOT_ACKED;
-                packet.seq_number = current_seq++;
+                // IDK why, but *sometimes* the value doesn't get set if I do
+                // this. SEQ number set in send for now
+
+                // packet.seq_number = current_seq++;
                 port_handler->sendPacketTo(packet, peer_address, peer_port);
             } else if (packet.status == NOT_ACKED) {
+                // std::cout << "Packet Not Acked\n" << packet << std::endl;
                 int64_t time_since_in_ms = (time_now - time_sent) / 1'000'000;
                 if (time_since_in_ms > TIMEOUT) {
+                    std::cout << "TIMEOUT!" << packet << base << ' ' << front
+                              << std::endl;
+
                     send_window[window_position].second = time_now;
                     port_handler->sendPacketTo(packet, peer_address, peer_port);
                 }
@@ -248,7 +267,9 @@ void UWUPSocket::send(char *data, int len) {
         int max_size = std::min(len, MAX_PACKET_SIZE);
         // wait till queue has space
         std::unique_lock<std::mutex> send_queue_lock(m_send_queue);
-        send_queue.push(Packet(data, max_size));
+        send_queue.push(Packet(0, current_seq, 0, 0, data, max_size));
+        current_seq++;
+        cv_send_queue_isEmpty.notify_one();
         data += max_size;
         len -= max_size;
     }

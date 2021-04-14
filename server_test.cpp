@@ -3,6 +3,7 @@
 
 #include <arpa/inet.h>
 #include <chrono>
+#include <cstring>
 #include <iostream>
 #include <netdb.h>
 #include <sys/types.h>
@@ -27,12 +28,16 @@ int main() {
         // std::cout << packet << std::endl;
 
         // std::this_thread::sleep_for(std::chrono::seconds(5));
-        char msg[] = "Test Message";
-        Packet ackPacket(123, 12333, 0, 0, msg, sizeof(msg));
+        // char msg[] = "Test Message";
+        std::string message = "Test Message";
+        message += std::to_string(i);
+        char msg[message.length()];
+        strcpy(msg, message.c_str());
+        Packet ackPacket(i, i, 0, 0, msg, sizeof(msg));
 
-        newSock.port_handler->sendPacketTo(ackPacket, newSock.peer_address,
-                                           newSock.peer_port);
-        // newSock.send(msg, sizeof(msg));
+        // newSock.port_handler->sendPacketTo(ackPacket, newSock.peer_address,
+        //                                    newSock.peer_port);
+        newSock.send(msg, sizeof(msg));
         std::this_thread::sleep_for(std::chrono::seconds(5));
 
         std::cout << "Send one packet" << std::endl;
