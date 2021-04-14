@@ -23,21 +23,20 @@ const int32_t MAX_SEND_WINDOW = 1000;
  * Socket Class for the UWUP
  */
 class UWUPSocket {
+    /// Thread handling sending ops for selective repeat
+    std::thread send_thread;
+    /// Thread handling receive operations for selective repeat
+    std::thread receive_thread;
     /// socket descriptor ( a UDP socket)
-
     int sockfd;
     /// flag to check if a connection has been established on the socket
     int my_port;
     /// port of the peer to which the connection had been established to
     bool is_listen;
     /// the sequence number of the next socket
-    int seq;
-    /// the peer address
-    std::string peer_address;
-    /// the peer port
-    int peer_port;
-    /// Port Handler
-    PortHandler *port_handler;
+    int base_seq;
+    /// next seq no of ongoing SR
+    int current_seq;
     /// Send Window
     std::vector<std::pair<Packet, int64_t>> send_window;
     /// Receive Window
@@ -63,6 +62,12 @@ class UWUPSocket {
     int windowSize();
 
   public:
+      /// Port Handler
+    PortHandler *port_handler;
+    /// the peer address
+    std::string peer_address;
+    /// the peer port
+    int peer_port;
     /**
      * Constructor for client socket
      */
@@ -77,7 +82,7 @@ class UWUPSocket {
      * Constructor to create a duplicate socket for a new client
      */
     UWUPSocket(int sockfd, std::string peer_address, int peer_port,
-               PortHandler *port_handler, int seq);
+               PortHandler *port_handler, int current_seq);
 
     /**
      * A function that accepts a connection and returns a connected socket

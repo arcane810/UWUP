@@ -53,10 +53,29 @@ std::string getFlagStr(uint32_t flag) {
     return s;
 }
 
+std::string getStatusStr(uint32_t status) {
+
+    std::string s;
+    if (status == ACKED)
+        s += "ACKED ";
+    if (status == NOT_ACKED)
+        s += "NOT_ACKED ";
+    if (status == NOT_SENT)
+        s += "NOT_SENT ";
+    if (status == INACTIVE)
+        s += "INACTIVE ";
+    if (s == "") {
+        s += "Unknown Status:";
+        s += std::to_string(status);
+    }
+    return s;
+}
+
 std::ostream &operator<<(std::ostream &os, Packet const &p) {
     os << "{\n"
        << p.ack_number << ' ' << p.seq_number << ' ' << p.rwnd << ' '
        << getFlagStr(p.flags) << '\n'
+       << getStatusStr(p.status) << '\n'
        << p.packet_struct->data << "\n}" << std::endl;
     return os;
 }

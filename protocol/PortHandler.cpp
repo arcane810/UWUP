@@ -36,8 +36,10 @@ Packet PortHandler::recvPacketFrom(std::string address, int port, int time_ms) {
 
 void PortHandler::sendPacketTo(Packet packet, std::string address, int port) {
     std::unique_lock<std::mutex> sq_lock(m_send_queue);
+    std::cout << "In sendPacketTo Mutex" << std::endl;
     send_queue.push({packet, {address, port}});
     sq_lock.unlock();
+    std::cout << "Out of  sendPacketTo Mutex" << std::endl;
     cv_send_queue_isEmpty.notify_one();
 }
 
@@ -55,6 +57,7 @@ void PortHandler::recvThreadFunction() {
         int port = htons(src_addr.sin_port);
         std::string address = inet_ntoa(src_addr.sin_addr);
         // Could be ntohs
+        std::cout << "Recv Packet\n" << Packet(buff, len) << std::endl;
         std::unique_lock<std::mutex> am_lock(m_address_map);
 
         if (address_map.find({address, port}) != address_map.end()) {
@@ -81,17 +84,20 @@ void PortHandler::recvThreadFunction() {
 
 void PortHandler::sendThreadFunction() {
     while (1) {
+
         std::unique_lock<std::mutex> sq_lock(m_send_queue);
+        std::cout << "In sendThread Mutex" << std::endl;
         if (send_queue.empty()) {
             cv_send_queue_isEmpty.wait(sq_lock);
         }
-
+        std::cout << "In sendThread past CV" << std::endl;
         char *data = (char *)send_queue.front().first.packet_struct;
         int len = send_queue.front().first.packet_length;
         std::string to_address = send_queue.front().second.first;
         int to_port = send_queue.front().second.second;
         send_queue.pop();
         sq_lock.unlock();
+        std::cout << "Out of ] sendThread Mutex" << std::endl;
         sockaddr_in dest_addr;
         dest_addr.sin_family = AF_INET;
         // dest_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
