@@ -1,7 +1,7 @@
 #include <cstdint>
 #include <iostream>
 
-const int MAX_PACKET_SIZE = 1024;
+const int MAX_PACKET_SIZE = 45;
 
 /**
  * A structure to store the packed structure
@@ -27,7 +27,7 @@ const uint32_t SYN = 1;
 const uint32_t ACK = 2;
 const uint32_t FIN = 4;
 
-enum status { ACKED, NOT_ACKED, NOT_SENT, INACTIVE };
+enum status { ACKED, NOT_ACKED, NOT_SENT, INACTIVE, RECEIVED };
 
 /**
  * A class to handle packet structsa, etc.

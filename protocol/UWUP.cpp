@@ -21,14 +21,26 @@ UWUPSocket::UWUPSocket() {
                sizeof(int));
 
     this->port_handler = new PortHandler(sockfd);
+
+    rng = new std::mt19937(
+        std::chrono::steady_clock::now().time_since_epoch().count());
 }
 
 UWUPSocket::UWUPSocket(int sockfd, std::string peer_address, int peer_port,
-                       PortHandler *port_handler, uint32_t base_seq)
+                       PortHandler *port_handler, uint32_t base_seq,
+                       uint32_t peer_seq)
     : sockfd(sockfd), peer_address(peer_address), peer_port(peer_port),
-      current_seq(base_seq), base_seq(base_seq), port_handler(port_handler) {
+      port_handler(port_handler), current_seq(base_seq), base_seq(base_seq),
+      peer_seq(peer_seq) {
+    thread_end = false;
     receive_thread = std::thread(&UWUPSocket::selectiveRepeatReceive, this);
     send_thread = std::thread(&UWUPSocket::selectiveRepeatSend, this);
+}
+
+UWUPSocket::~UWUPSocket() {
+    thread_end = true;
+    send_thread.join();
+    receive_thread.join();
 }
 
 void UWUPSocket::listen(int port) {
@@ -52,18 +64,25 @@ UWUPSocket::UWUPSocket(const UWUPSocket &sock) {
     peer_port = sock.peer_port;
     port_handler = sock.port_handler;
     base_seq = sock.base_seq;
+    peer_seq = sock.peer_seq;
 }
 
 void UWUPSocket::selectiveRepeatReceive() {
-
+    std::vector<Packet> buffer;
+    int ASSUMED_WINDOW = MAX_SEND_WINDOW / 2;
+    // Should I make this larger?
+    buffer.resize(ASSUMED_WINDOW + 1, Packet(0, 0, 0, 0, nullptr, 0));
     while (1) {
         Packet new_packet =
             port_handler->recvPacketFrom(peer_address, peer_port);
+        // std::cout << "Got  packet " << new_packet << std::endl;
+
         if (new_packet.flags && ACK) {
 
             int pk_no = (new_packet.ack_number - base_seq) % MAX_SEND_WINDOW;
             // std::cout << "Got ack packet " << new_packet << pk_no <<
             // std::endl;
+            // Lock for `last_confirmed_seq`
             std::unique_lock<std::mutex> send_window_lock(m_send_window);
             // drop duplicate acks
             if (new_packet.ack_number <= last_confirmed_seq) {
@@ -77,23 +96,58 @@ void UWUPSocket::selectiveRepeatReceive() {
         } else if ((new_packet.flags && SYN) || (new_packet.flags && FIN)) {
             std::cout << "Unexpected packet\n" << new_packet << std::endl;
         } else {
-            std::cout << "Non-Flagged Packet " << new_packet << std::endl;
-            if (rand() % 2) {
-                std::cout << "Dropping ACK" << std::endl;
-                continue;
-            }
+            // std::cout << "Non-Flagged Packet " << new_packet << std::endl;
+
             char msg[] = "ACK packet";
             Packet resp_packet(new_packet.seq_number, 0, ACK, 20, msg,
                                strlen(msg));
+            if (rand() % 2) {
+                std::cout << "Dropping ACK " << new_packet.seq_number
+                          << std::endl;
+                continue;
+            }
+            // ACK sent for all cases
             port_handler->sendPacketTo(resp_packet, peer_address, peer_port);
-            port_handler->sendPacketTo(resp_packet, peer_address, peer_port);
+            // std::unique_lock<std::mutex> receive_queue_lock(m_receive_queue);
+            // receive_queue.push(new_packet);
+            // receive_queue_lock.unlock();
+
+            if (new_packet.seq_number == peer_seq) {
+                new_packet.status = RECEIVED;
+                buffer[new_packet.seq_number % ASSUMED_WINDOW] = new_packet;
+                std::cout << "Got inorder Packet " << new_packet.seq_number
+                          << std::endl;
+                std::unique_lock<std::mutex> receive_queue_lock(
+                    m_receive_queue);
+
+                while (buffer[new_packet.seq_number % ASSUMED_WINDOW].status ==
+                       RECEIVED) {
+
+                    receive_queue.push(
+                        buffer[new_packet.seq_number % ASSUMED_WINDOW]);
+                    buffer[new_packet.seq_number % ASSUMED_WINDOW].status =
+                        INACTIVE;
+                    peer_seq++;
+                }
+                receive_queue_lock.unlock();
+            } else if (new_packet.seq_number > peer_seq) {
+                std::cout << "Buffering " << new_packet.seq_number
+                          << " Current " << peer_seq << std::endl;
+                new_packet.status = RECEIVED;
+                buffer[new_packet.seq_number % ASSUMED_WINDOW] = new_packet;
+            } else if (new_packet.seq_number < peer_seq) {
+                std::cout << "Duplicate Packet " << new_packet.seq_number
+                          << " Curr Expected Seq " << peer_seq << std::endl;
+            }
+
+            // port_handler->sendPacketTo(resp_packet, peer_address, peer_port);
         }
     }
 }
 
 int UWUPSocket::windowSize() {
     // std::unique_lock<std::mutex> window_size_lock(m_window_size);
-    int size = 5;
+    int size = 10;
     // window_size_lock.unlock();
     return size;
 }
@@ -126,6 +180,7 @@ void UWUPSocket::selectiveRepeatSend() {
         if (num_packets == 0 && send_queue.empty()) {
             std::cout << "Waiting for Packets to send" << std::endl;
             cv_send_queue_isEmpty.wait(send_queue_lock);
+            std::cout << "Got Packets to send" << std::endl;
         }
         std::unique_lock<std::mutex> window_size_lock(m_window_size,
                                                       std::defer_lock);
@@ -134,8 +189,8 @@ void UWUPSocket::selectiveRepeatSend() {
         // Add packets to window while we have packets from application
         // layer and window isn't full
         while (!send_queue.empty() && num_packets < window_size) {
-            if (num_packets >= MAX_SEND_WINDOW - 2) {
-                continue;
+            if (num_packets >= window_size - 2) {
+                break;
             }
             if (send_window[front].first.status == INACTIVE) {
                 Packet new_packet = send_queue.front();
@@ -209,9 +264,9 @@ void UWUPSocket::connect(std::string peer_address, int peer_port) {
             try {
                 Packet syn_ack_packet = port_handler->recvPacketFrom(
                     peer_address, peer_port, timeout);
-                // std::cout << syn_ack_packet << std::endl;
                 if ((syn_ack_packet.flags & (SYN | ACK)) ||
                     syn_ack_packet.ack_number != this->base_seq) {
+                    peer_seq = syn_ack_packet.seq_number + 1;
                     next_seq_exp = syn_ack_packet.seq_number + 1;
                     break;
                 }
@@ -223,9 +278,9 @@ void UWUPSocket::connect(std::string peer_address, int peer_port) {
                 std::cerr << e.what() << std::endl;
             }
         }
+        base_seq++;
         char msg2[] = "ACK packet";
-        Packet ackPacket(next_seq_exp, ++this->base_seq, ACK, 0, msg2,
-                         sizeof(msg2));
+        Packet ackPacket(next_seq_exp, base_seq, ACK, 0, msg2, sizeof(msg2));
         port_handler->sendPacketTo(ackPacket, peer_address, peer_port);
     } catch (const std::runtime_error &e) {
         port_handler->deleteAddressQueue(peer_address, peer_port);
@@ -236,7 +291,7 @@ void UWUPSocket::connect(std::string peer_address, int peer_port) {
     send_thread = std::thread(&UWUPSocket::selectiveRepeatSend, this);
 }
 
-UWUPSocket UWUPSocket::accept() {
+UWUPSocket *UWUPSocket::accept() {
     std::pair<std::pair<std::string, int>, Packet> new_connection =
         port_handler->getNewConnection();
 
@@ -248,30 +303,47 @@ UWUPSocket UWUPSocket::accept() {
     Packet synPacket = new_connection.second;
     if (!(synPacket.flags & SYN))
         throw connection_exception("invalid handshake packet");
+    uint32_t peer_seq_no = synPacket.seq_number;
     char msg[] = "SYN | ACK packet";
     port_handler->makeAddressConnected(cli_addr, cli_port);
 
     uint32_t seq_no = rand() % 100;
     // Retry if packet is dropped.
-    Packet synAckPacket =
-        Packet(synPacket.seq_number, seq_no++, SYN | ACK, 0, msg, sizeof(msg));
-    port_handler->sendPacketTo(synAckPacket, cli_addr, cli_port);
+    int tries = 8, timeout = 100;
+    while (tries--) {
+        Packet synAckPacket = Packet(synPacket.seq_number, seq_no++, SYN | ACK,
+                                     0, msg, sizeof(msg));
+        port_handler->sendPacketTo(synAckPacket, cli_addr, cli_port);
 
-    try {
-        Packet ackpacket =
-            port_handler->recvPacketFrom(cli_addr, cli_port, 10000);
-    } catch (const std::exception &e) {
-        port_handler->deleteAddressQueue(cli_addr, cli_port);
-        std::cerr << e.what() << std::endl;
+        try {
+            Packet ackpacket =
+                port_handler->recvPacketFrom(cli_addr, cli_port, timeout);
+            // Just checking if ack rn
+            // Check for seq no failing
+            if ((ackpacket.flags & ACK)) {
+                peer_seq_no++;
+                break;
+            }
+
+        } catch (timeout_exception e) {
+            std::cerr << "SYN|ACK timeout in " << timeout << " ms."
+                      << std::endl;
+            timeout *= 2;
+        } catch (const std::exception &e) {
+            port_handler->deleteAddressQueue(cli_addr, cli_port);
+            std::cerr << e.what() << std::endl;
+        }
     }
-    // Use new here?
-    return UWUPSocket(sockfd, cli_addr, cli_port, port_handler, seq_no);
+    UWUPSocket *socket = new UWUPSocket(sockfd, cli_addr, cli_port,
+                                        port_handler, seq_no, peer_seq_no);
+    return socket;
 }
 
 std::ostream &operator<<(std::ostream &os, UWUPSocket const &sock) {
     os << "{\n"
-       << "sockfd:" << sock.sockfd << "\npeer:" << sock.peer_address << ':'
-       << sock.peer_port << "\n}" << std::endl;
+       << "sockfd:" << sock.sockfd << "\nseq:" << sock.base_seq
+       << "\npeer:" << sock.peer_address << ':' << sock.peer_port << "\n}"
+       << std::endl;
     return os;
 }
 /// @Todo wait if queue is full.
@@ -286,4 +358,27 @@ void UWUPSocket::send(char *data, int len) {
         data += max_size;
         len -= max_size;
     }
+}
+
+// Fix the busy wait here
+int UWUPSocket::recv(char *data, int len) {
+    std::unique_lock<std::mutex> receive_queue_lock(m_receive_queue,
+                                                    std::defer_lock);
+    int added = 0;
+    while (1) {
+        receive_queue_lock.lock();
+        if (receive_queue.empty()) {
+            receive_queue_lock.unlock();
+            continue;
+        }
+        memcpy(data, receive_queue.front().packet_struct->data,
+               receive_queue.front().data_len);
+        // std::cout << "PACKET: " << receive_queue.front() << std::endl;
+        data += receive_queue.front().data_len;
+        added += receive_queue.front().data_len;
+        receive_queue.pop();
+        break;
+    }
+    std::cout << "DONE RECV: " << added << std::endl;
+    return added;
 }

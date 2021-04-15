@@ -4,6 +4,7 @@
 #include <condition_variable>
 #include <mutex>
 #include <queue>
+#include <random>
 #include <stdexcept>
 #include <string>
 #include <sys/socket.h>
@@ -33,6 +34,8 @@ class UWUPSocket {
     int my_port;
     /// port of the peer to which the connection had been established to
     bool is_listen;
+    /// thread end flag
+    bool thread_end;
     /// the sequence number of the next socket
     uint32_t base_seq;
     /// next seq no of ongoing SR
@@ -40,12 +43,16 @@ class UWUPSocket {
     /// Last Confirmed seq. The window has moved past this packet. Acquire
     /// m_send_window to use.
     uint32_t last_confirmed_seq = 0;
+    /// peer's seq no. Established during handshake.
+    uint32_t peer_seq;
     /// Send Window
     std::vector<std::pair<Packet, int64_t>> send_window;
     /// Receive Window
     std::vector<Packet> receive_window;
     /// Send Queue
     std::queue<Packet> send_queue;
+    /// mutex for receive queue access
+    std::mutex m_receive_queue;
     /// Receive Queue
     std::queue<Packet> receive_queue;
     /// mutex for send queue access
@@ -58,6 +65,8 @@ class UWUPSocket {
     std::condition_variable cv_send_queue_isEmpty;
     /// CV for recv queue
     std::condition_variable cv_receive_queue_isFull;
+    /// Random object for starting sequence numbers
+    std::mt19937 *rng;
 
     friend std::ostream &operator<<(std::ostream &os, UWUPSocket const &sock);
 
@@ -82,17 +91,21 @@ class UWUPSocket {
      * members
      */
     UWUPSocket(const UWUPSocket &sock);
-
+    /**
+     * Destructor
+     */
+    ~UWUPSocket();
     /**
      * Constructor to create a duplicate socket for a new client
      */
     UWUPSocket(int sockfd, std::string peer_address, int peer_port,
-               PortHandler *port_handler, uint32_t current_seq);
+               PortHandler *port_handler, uint32_t current_seq,
+               uint32_t peer_seq);
 
     /**
      * A function that accepts a connection and returns a connected socket
      */
-    UWUPSocket accept();
+    UWUPSocket *accept();
 
     /**
      * A function that binds to the local address and marks socket as passive.
@@ -112,5 +125,5 @@ class UWUPSocket {
     /**
      * Function to send the packet to the connected peer
      */
-    void recv(char *data, int len);
+    int recv(char *data, int len);
 };
