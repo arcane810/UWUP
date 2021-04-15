@@ -15,12 +15,15 @@ int main() {
     int my_port = 8080;
     UWUPSocket socket;
     socket.listen(my_port);
+    std::vector<UWUPSocket> socks;
     // return 1;
     int i = 50;
-    UWUPSocket newSock = socket.accept();
-    std::cout << newSock << std::endl;
     while (i--) {
 
+        socks.push_back(socket.accept());
+        for (auto cock : socks) {
+            std::cout << cock << std::endl;
+        }
         // std::string s = std::to_string(i);
         // char *msg = (char *)s.c_str();
         // // sprintf(msg1, "Initial SYN packet, client %d", i);
@@ -29,24 +32,25 @@ int main() {
 
         // std::this_thread::sleep_for(std::chrono::seconds(5));
         // char msg[] = "Test Message";
-        std::string message = "Test Message";
-        message += std::to_string(i);
-        char msg[message.length()];
-        strcpy(msg, message.c_str());
-        Packet ackPacket(i, i, 0, 0, msg, sizeof(msg));
 
-        // newSock.port_handler->sendPacketTo(ackPacket, newSock.peer_address,
-        //                                    newSock.peer_port);
-        newSock.send(msg, sizeof(msg));
-        std::this_thread::sleep_for(std::chrono::seconds(1));
+        // std::string message = "Test Message";
+        // message += std::to_string(i);
+        // char msg[message.length()];
+        // strcpy(msg, message.c_str());
+        // Packet ackPacket(i, i, 0, 0, msg, sizeof(msg));
 
-        std::cout << "Send one packet" << std::endl;
+        // // newSock.port_handler->sendPacketTo(ackPacket,
+        // newSock.peer_address,
+        // //                                    newSock.peer_port);
+        // newSock.send(msg, sizeof(msg));
+        // std::this_thread::sleep_for(std::chrono::seconds(1));
+
+        // std::cout << "Send one packet" << std::endl;
     }
     // start recv thread
     // portHandler.recvThreadFunction();
     // std::thread sr_thread(&PortHandler::recvThreadFunction, &portHandler);
     // sr_thread.join();
-    // recv
     std::this_thread::sleep_for(std::chrono::seconds(60));
     return 0;
 }

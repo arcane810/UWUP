@@ -34,12 +34,12 @@ class UWUPSocket {
     /// port of the peer to which the connection had been established to
     bool is_listen;
     /// the sequence number of the next socket
-    int base_seq;
+    uint32_t base_seq;
     /// next seq no of ongoing SR
-    int current_seq;
+    uint32_t current_seq;
     /// Last Confirmed seq. The window has moved past this packet. Acquire
     /// m_send_window to use.
-    int last_confirmed_seq = 0;
+    uint32_t last_confirmed_seq = 0;
     /// Send Window
     std::vector<std::pair<Packet, int64_t>> send_window;
     /// Receive Window
@@ -87,7 +87,7 @@ class UWUPSocket {
      * Constructor to create a duplicate socket for a new client
      */
     UWUPSocket(int sockfd, std::string peer_address, int peer_port,
-               PortHandler *port_handler, int current_seq);
+               PortHandler *port_handler, uint32_t current_seq);
 
     /**
      * A function that accepts a connection and returns a connected socket
