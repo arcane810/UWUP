@@ -27,7 +27,7 @@ const uint32_t SYN = 1;
 const uint32_t ACK = 2;
 const uint32_t FIN = 4;
 
-enum status { ACKED, NOT_ACKED, NOT_SENT, INACTIVE };
+enum status { ACKED, NOT_ACKED, NOT_SENT, INACTIVE, RECIEVED };
 
 /**
  * A class to handle packet structsa, etc.

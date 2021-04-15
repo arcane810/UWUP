@@ -4,6 +4,7 @@
 #include <condition_variable>
 #include <mutex>
 #include <queue>
+#include <random>
 #include <stdexcept>
 #include <string>
 #include <sys/socket.h>
@@ -44,6 +45,8 @@ class UWUPSocket {
     uint32_t last_confirmed_seq = 0;
     /// thread and flag
     bool thread_end;
+    /// next expected sequence number
+    uint32_t next_seq_exp;
     /// Send Window
     std::vector<std::pair<Packet, int64_t>> send_window;
     /// Receive Window
@@ -54,14 +57,22 @@ class UWUPSocket {
     std::queue<Packet> receive_queue;
     /// mutex for send queue access
     std::mutex m_send_queue;
+    /// mutex for receive queue access
+    std::mutex m_receive_queue;
     /// mutex for send queue access
     std::mutex m_send_window;
+    /// mutex for send queue access
+    std::mutex m_receive_window;
     /// mutex for recieve window
     std::mutex m_window_size;
     /// CV for send queue
     std::condition_variable cv_send_queue_isEmpty;
     /// CV for recv queue
     std::condition_variable cv_receive_queue_isFull;
+    /// number of packets in window
+    int num_packets;
+    /// Random object for starting sequence numbers
+    std::mt19937 *rng;
 
     friend std::ostream &operator<<(std::ostream &os, UWUPSocket const &sock);
 
