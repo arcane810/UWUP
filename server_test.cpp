@@ -38,7 +38,7 @@ int main() {
         // newSock.port_handler->sendPacketTo(ackPacket, newSock.peer_address,
         //                                    newSock.peer_port);
         newSock.send(msg, sizeof(msg));
-        std::this_thread::sleep_for(std::chrono::seconds(5));
+        std::this_thread::sleep_for(std::chrono::seconds(1));
 
         std::cout << "Send one packet" << std::endl;
     }

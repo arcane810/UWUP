@@ -1,4 +1,5 @@
 /.vscode
 *.out
+build/
 server_test
 client_test

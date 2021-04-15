@@ -37,6 +37,9 @@ class UWUPSocket {
     int base_seq;
     /// next seq no of ongoing SR
     int current_seq;
+    /// Last Confirmed seq. The window has moved past this packet. Acquire
+    /// m_send_window to use.
+    int last_confirmed_seq = 0;
     /// Send Window
     std::vector<std::pair<Packet, int64_t>> send_window;
     /// Receive Window
