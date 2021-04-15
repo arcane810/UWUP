@@ -27,6 +27,7 @@ UWUPSocket::UWUPSocket(int sockfd, std::string peer_address, int peer_port,
                        PortHandler *port_handler, uint32_t base_seq)
     : sockfd(sockfd), peer_address(peer_address), peer_port(peer_port),
       current_seq(base_seq), base_seq(base_seq), port_handler(port_handler) {
+    thread_end = false;
     receive_thread = std::thread(&UWUPSocket::selectiveRepeatReceive, this);
     send_thread = std::thread(&UWUPSocket::selectiveRepeatSend, this);
 }
@@ -54,9 +55,18 @@ UWUPSocket::UWUPSocket(const UWUPSocket &sock) {
     base_seq = sock.base_seq;
 }
 
+UWUPSocket::~UWUPSocket() {
+    thread_end = true;
+    send_thread.join();
+    receive_thread.join();
+}
+
 void UWUPSocket::selectiveRepeatReceive() {
 
     while (1) {
+        if (thread_end) {
+            break;
+        }
         Packet new_packet =
             port_handler->recvPacketFrom(peer_address, peer_port);
         if (new_packet.flags && ACK) {
@@ -108,6 +118,9 @@ void UWUPSocket::selectiveRepeatSend() {
 
     std::cout << "Starting SR" << std::endl;
     while (1) {
+        if (thread_end) {
+            break;
+        }
         std::unique_lock<std::mutex> send_window_lock(m_send_window);
         // Remove packets that have been ACKd from window
         while (send_window[base].first.status == ACKED) {
@@ -236,7 +249,8 @@ void UWUPSocket::connect(std::string peer_address, int peer_port) {
     send_thread = std::thread(&UWUPSocket::selectiveRepeatSend, this);
 }
 
-UWUPSocket UWUPSocket::accept() {
+UWUPSocket *UWUPSocket::accept() {
+    std::cout << "Accept Called\n";
     std::pair<std::pair<std::string, int>, Packet> new_connection =
         port_handler->getNewConnection();
 
@@ -265,7 +279,9 @@ UWUPSocket UWUPSocket::accept() {
         std::cerr << e.what() << std::endl;
     }
     // Use new here?
-    return UWUPSocket(sockfd, cli_addr, cli_port, port_handler, seq_no);
+    UWUPSocket *sock =
+        new UWUPSocket(sockfd, cli_addr, cli_port, port_handler, seq_no);
+    return sock;
 }
 
 std::ostream &operator<<(std::ostream &os, UWUPSocket const &sock) {

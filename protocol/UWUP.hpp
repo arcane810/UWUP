@@ -19,6 +19,8 @@ class connection_exception : public std::runtime_error {
 const int32_t TIMEOUT = 1000;
 const int32_t MAX_SEND_WINDOW = 10;
 
+class ConnectedUWUPSocket;
+
 /**
  * Socket Class for the UWUP
  */
@@ -40,6 +42,8 @@ class UWUPSocket {
     /// Last Confirmed seq. The window has moved past this packet. Acquire
     /// m_send_window to use.
     uint32_t last_confirmed_seq = 0;
+    /// thread and flag
+    bool thread_end;
     /// Send Window
     std::vector<std::pair<Packet, int64_t>> send_window;
     /// Receive Window
@@ -88,11 +92,14 @@ class UWUPSocket {
      */
     UWUPSocket(int sockfd, std::string peer_address, int peer_port,
                PortHandler *port_handler, uint32_t current_seq);
-
+    /**
+     * Destructor
+     */
+    ~UWUPSocket();
     /**
      * A function that accepts a connection and returns a connected socket
      */
-    UWUPSocket accept();
+    UWUPSocket *accept();
 
     /**
      * A function that binds to the local address and marks socket as passive.

@@ -135,6 +135,7 @@ void PortHandler::deleteAddressQueue(std::string address, int port) {
 
 // Make this blocking somehow? Maybe have a mutex on the length of the queue?
 std::pair<std::pair<std::string, int>, Packet> PortHandler::getNewConnection() {
+    std::cout << "New Connection Request checked\n";
     std::unique_lock<std::mutex> cq_lock(m_connect_queue);
     while (connect_queue.empty())
         cv_connect_queue_isEmpty.wait(cq_lock);

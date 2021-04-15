@@ -15,15 +15,16 @@ int main() {
     int my_port = 8080;
     UWUPSocket socket;
     socket.listen(my_port);
-    std::vector<UWUPSocket> socks;
+    std::vector<UWUPSocket *> socks;
     // return 1;
     int i = 50;
     while (i--) {
-
+        std::cout << i << std::endl;
         socks.push_back(socket.accept());
         for (auto cock : socks) {
-            std::cout << cock << std::endl;
+            std::cout << (*(cock)) << std::endl;
         }
+        std::cout << "LEL" << std::endl;
         // std::string s = std::to_string(i);
         // char *msg = (char *)s.c_str();
         // // sprintf(msg1, "Initial SYN packet, client %d", i);
