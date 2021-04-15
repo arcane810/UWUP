@@ -22,7 +22,7 @@ UWUPSocket::UWUPSocket() {
 
     this->port_handler = new PortHandler(sockfd);
 
-    rng = new std::mt19937(
+    rng = std::mt19937(
         std::chrono::steady_clock::now().time_since_epoch().count());
 }
 
@@ -96,51 +96,39 @@ void UWUPSocket::selectiveRepeatReceive() {
         } else if ((new_packet.flags && SYN) || (new_packet.flags && FIN)) {
             std::cout << "Unexpected packet\n" << new_packet << std::endl;
         } else {
-            // std::cout << "Non-Flagged Packet " << new_packet << std::endl;
+
+            // TODO: Add locks for windowSize()
+            int r = rng() % 10;
+            std::cout << "Rand " << r << std::endl;
+            if (r < 5) {
+                std::cout << "Dropping " << new_packet.seq_number << std::endl;
+                continue;
+            }
+            std::cout << "Sending " << new_packet.seq_number << std::endl;
 
             char msg[] = "ACK packet";
             Packet resp_packet(new_packet.seq_number, 0, ACK, 20, msg,
                                strlen(msg));
-            if (rand() % 2) {
-                std::cout << "Dropping ACK " << new_packet.seq_number
-                          << std::endl;
-                continue;
-            }
-            // ACK sent for all cases
             port_handler->sendPacketTo(resp_packet, peer_address, peer_port);
-            // std::unique_lock<std::mutex> receive_queue_lock(m_receive_queue);
-            // receive_queue.push(new_packet);
-            // receive_queue_lock.unlock();
-
-            if (new_packet.seq_number == peer_seq) {
+            if (new_packet.seq_number < peer_seq + windowSize()) {
                 new_packet.status = RECEIVED;
-                buffer[new_packet.seq_number % ASSUMED_WINDOW] = new_packet;
-                std::cout << "Got inorder Packet " << new_packet.seq_number
-                          << std::endl;
+                buffer[new_packet.seq_number % MAX_SEND_WINDOW] = new_packet;
+            }
+            while (buffer[peer_seq % MAX_SEND_WINDOW].status == RECEIVED) {
                 std::unique_lock<std::mutex> receive_queue_lock(
                     m_receive_queue);
+                std::cout << "Received "
+                          << buffer[peer_seq % MAX_SEND_WINDOW].seq_number
+                          << std::endl;
+                receive_queue.push(buffer[peer_seq % MAX_SEND_WINDOW]);
 
-                while (buffer[new_packet.seq_number % ASSUMED_WINDOW].status ==
-                       RECEIVED) {
-
-                    receive_queue.push(
-                        buffer[new_packet.seq_number % ASSUMED_WINDOW]);
-                    buffer[new_packet.seq_number % ASSUMED_WINDOW].status =
-                        INACTIVE;
-                    peer_seq++;
-                }
                 receive_queue_lock.unlock();
-            } else if (new_packet.seq_number > peer_seq) {
-                std::cout << "Buffering " << new_packet.seq_number
-                          << " Current " << peer_seq << std::endl;
-                new_packet.status = RECEIVED;
-                buffer[new_packet.seq_number % ASSUMED_WINDOW] = new_packet;
-            } else if (new_packet.seq_number < peer_seq) {
-                std::cout << "Duplicate Packet " << new_packet.seq_number
-                          << " Curr Expected Seq " << peer_seq << std::endl;
-            }
 
-            // port_handler->sendPacketTo(resp_packet, peer_address, peer_port);
+                buffer[peer_seq % MAX_SEND_WINDOW].status = INACTIVE;
+                peer_seq++;
+            }
+            // receive_window_lock.unlock();
+            // std::cout << "Non-Flagged Packet " << new_packet << std::endl;
         }
     }
 }

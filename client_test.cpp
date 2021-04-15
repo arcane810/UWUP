@@ -15,7 +15,7 @@ int main(int argc, char *argv[]) {
     FILE *fp = fopen("out.txt", "wb+");
     int len;
     while ((len = socket.recv(data, 2048)) > 0) {
-        std::cout << data << std::endl;
+        // std::cout << data << std::endl;
         fwrite(data, len, 1, fp);
         fflush(fp);
         memset(data, 0, sizeof(data));

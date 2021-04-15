@@ -18,7 +18,7 @@ class connection_exception : public std::runtime_error {
 };
 
 const int32_t TIMEOUT = 1000;
-const int32_t MAX_SEND_WINDOW = 10;
+const int32_t MAX_SEND_WINDOW = 1024;
 
 /**
  * Socket Class for the UWUP
@@ -66,7 +66,7 @@ class UWUPSocket {
     /// CV for recv queue
     std::condition_variable cv_receive_queue_isFull;
     /// Random object for starting sequence numbers
-    std::mt19937 *rng;
+    std::mt19937 rng;
 
     friend std::ostream &operator<<(std::ostream &os, UWUPSocket const &sock);
 

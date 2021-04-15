@@ -17,7 +17,7 @@ int main(int argc, char *argv[]) {
     socket.listen(my_port);
     auto sock = socket.accept();
     std::cout << "CONNECTION ESTABLISHED" << std::endl;
-    FILE *fp = fopen("client.log", "rb");
+    FILE *fp = fopen("outfile.log", "rb");
     int len = 0;
     char data[1024];
     char msg[] = "Test Message";
