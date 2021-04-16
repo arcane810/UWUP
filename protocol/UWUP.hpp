@@ -17,8 +17,9 @@ class connection_exception : public std::runtime_error {
         : runtime_error("connection exception:" + msg) {}
 };
 
-const int32_t TIMEOUT = 1000;
-const int32_t MAX_SEND_WINDOW = 1024;
+const int64_t TIMEOUT = 1000;
+const uint32_t MAX_SEND_WINDOW = 1024;
+const uint32_t DEFALT_WINDOW_SIZE = (MAX_SEND_WINDOW / 2) - 300;
 
 /**
  * Socket Class for the UWUP
@@ -45,6 +46,8 @@ class UWUPSocket {
     uint32_t last_confirmed_seq = 0;
     /// peer's seq no. Established during handshake.
     uint32_t peer_seq;
+    /// send window size
+    uint32_t send_window_size;
     /// Send Window
     std::vector<std::pair<Packet, int64_t>> send_window;
     /// Receive Window
@@ -74,6 +77,7 @@ class UWUPSocket {
     void selectiveRepeatReceive();
 
     int windowSize();
+    void setWindowSize(uint32_t window_size);
 
   public:
     /// Port Handler
@@ -100,7 +104,7 @@ class UWUPSocket {
      */
     UWUPSocket(int sockfd, std::string peer_address, int peer_port,
                PortHandler *port_handler, uint32_t current_seq,
-               uint32_t peer_seq);
+               uint32_t peer_seq, uint32_t send_window_size);
 
     /**
      * A function that accepts a connection and returns a connected socket

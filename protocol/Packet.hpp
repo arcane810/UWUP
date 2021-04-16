@@ -1,7 +1,7 @@
 #include <cstdint>
 #include <iostream>
 
-const int MAX_PACKET_SIZE = 45;
+const int MAX_PACKET_SIZE = 1024;
 
 /**
  * A structure to store the packed structure

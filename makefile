@@ -1,6 +1,6 @@
 CC = g++
 OUT_DIR = build
-CFLAGS = -c -std=c++17 -g 
+CFLAGS = -c -std=c++17 -g -Og 
 LIBFLAGS = -pthread
 INC = -I src/includes
 .PHONY: test clean

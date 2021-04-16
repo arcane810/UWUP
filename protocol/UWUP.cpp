@@ -4,7 +4,6 @@
 #include <cstring>
 #include <iostream>
 #include <netdb.h>
-#include <random>
 #include <sys/types.h>
 #include <unistd.h>
 
@@ -26,12 +25,13 @@ UWUPSocket::UWUPSocket() {
         std::chrono::steady_clock::now().time_since_epoch().count());
 }
 
+// _Please_ yeet
 UWUPSocket::UWUPSocket(int sockfd, std::string peer_address, int peer_port,
                        PortHandler *port_handler, uint32_t base_seq,
-                       uint32_t peer_seq)
+                       uint32_t peer_seq, uint32_t send_window_size)
     : sockfd(sockfd), peer_address(peer_address), peer_port(peer_port),
       port_handler(port_handler), current_seq(base_seq), base_seq(base_seq),
-      peer_seq(peer_seq) {
+      peer_seq(peer_seq), send_window_size(send_window_size) {
     thread_end = false;
     receive_thread = std::thread(&UWUPSocket::selectiveRepeatReceive, this);
     send_thread = std::thread(&UWUPSocket::selectiveRepeatSend, this);
@@ -65,6 +65,7 @@ UWUPSocket::UWUPSocket(const UWUPSocket &sock) {
     port_handler = sock.port_handler;
     base_seq = sock.base_seq;
     peer_seq = sock.peer_seq;
+    send_window_size = sock.send_window_size;
 }
 
 void UWUPSocket::selectiveRepeatReceive() {
@@ -73,11 +74,13 @@ void UWUPSocket::selectiveRepeatReceive() {
     // Should I make this larger?
     buffer.resize(ASSUMED_WINDOW + 1, Packet(0, 0, 0, 0, nullptr, 0));
     while (1) {
+        if (thread_end)
+            break;
         Packet new_packet =
             port_handler->recvPacketFrom(peer_address, peer_port);
         // std::cout << "Got  packet " << new_packet << std::endl;
 
-        if (new_packet.flags && ACK) {
+        if (new_packet.flags & ACK) {
 
             int pk_no = (new_packet.ack_number - base_seq) % MAX_SEND_WINDOW;
             // std::cout << "Got ack packet " << new_packet << pk_no <<
@@ -93,18 +96,45 @@ void UWUPSocket::selectiveRepeatReceive() {
             }
             send_window[pk_no].first.status = ACKED;
             send_window_lock.unlock();
-        } else if ((new_packet.flags && SYN) || (new_packet.flags && FIN)) {
+        } else if (new_packet.flags & (FIN | ACK)) {
+            thread_end = true;
+            std::unique_lock<std::mutex> send_window_lock(m_send_window,
+                                                          std::defer_lock);
+            std::unique_lock<std::mutex> send_queue_lock(m_send_queue,
+                                                         std::defer_lock);
+            std::lock(send_window_lock, send_queue_lock);
+
+            // Prevent possible infinite wait in selectiveRepeatSend
+            cv_send_queue_isEmpty.notify_all();
+
+            int window_size = windowSize();
+            bool inflight_packets = false;
+            for (int i = last_confirmed_seq + 1;
+                 i < last_confirmed_seq + window_size + 1; i++) {
+                int current_position = i % MAX_SEND_WINDOW;
+                if (send_window[current_position].first.status == NOT_ACKED) {
+                    inflight_packets = true;
+                }
+            }
+            if (!send_queue.empty() || inflight_packets) {
+                throw connection_exception(
+                    "Unexpected Error: Peer closed connection, but unsent "
+                    "packets present!");
+            }
+            send_window_lock.unlock();
+            send_queue_lock.unlock();
+        } else if ((new_packet.flags & SYN)) {
             std::cout << "Unexpected packet\n" << new_packet << std::endl;
         } else {
 
             // TODO: Add locks for windowSize()
-            int r = rng() % 10;
-            std::cout << "Rand " << r << std::endl;
-            if (r < 5) {
-                std::cout << "Dropping " << new_packet.seq_number << std::endl;
-                continue;
-            }
-            std::cout << "Sending " << new_packet.seq_number << std::endl;
+            // int r = rng() % 10;
+            // std::cout << "Rand " << r << std::endl;
+            // if (r < 5) {
+            //     std::cout << "Dropping " << new_packet.seq_number <<
+            //     std::endl; continue;
+            // }
+            // std::cout << "Sending " << new_packet.seq_number << std::endl;
 
             char msg[] = "ACK packet";
             Packet resp_packet(new_packet.seq_number, 0, ACK, 20, msg,
@@ -134,10 +164,14 @@ void UWUPSocket::selectiveRepeatReceive() {
 }
 
 int UWUPSocket::windowSize() {
-    // std::unique_lock<std::mutex> window_size_lock(m_window_size);
-    int size = 10;
-    // window_size_lock.unlock();
-    return size;
+    std::unique_lock<std::mutex> window_size_lock(m_window_size);
+    return send_window_size;
+}
+
+void UWUPSocket::setWindowSize(uint32_t window_size) {
+    std::unique_lock<std::mutex> window_size_lock(m_window_size);
+    send_window_size = std::min(DEFALT_WINDOW_SIZE, window_size);
+    window_size_lock.unlock();
 }
 
 void UWUPSocket::selectiveRepeatSend() {
@@ -150,6 +184,8 @@ void UWUPSocket::selectiveRepeatSend() {
 
     std::cout << "Starting SR" << std::endl;
     while (1) {
+        if (thread_end)
+            break;
         std::unique_lock<std::mutex> send_window_lock(m_send_window);
         // Remove packets that have been ACKd from window
         while (send_window[base].first.status == ACKED) {
@@ -169,11 +205,12 @@ void UWUPSocket::selectiveRepeatSend() {
             std::cout << "Waiting for Packets to send" << std::endl;
             cv_send_queue_isEmpty.wait(send_queue_lock);
             std::cout << "Got Packets to send" << std::endl;
+            if (thread_end)
+                break;
         }
-        std::unique_lock<std::mutex> window_size_lock(m_window_size,
-                                                      std::defer_lock);
-        std::lock(send_window_lock, window_size_lock);
         int window_size = windowSize();
+
+        send_window_lock.lock();
         // Add packets to window while we have packets from application
         // layer and window isn't full
         while (!send_queue.empty() && num_packets < window_size) {
@@ -198,7 +235,6 @@ void UWUPSocket::selectiveRepeatSend() {
             }
         }
         send_window_lock.unlock();
-        window_size_lock.unlock();
         send_queue_lock.unlock();
         // If seq number not updated, packet is till sent.
         send_window_lock.lock();
@@ -247,15 +283,18 @@ void UWUPSocket::connect(std::string peer_address, int peer_port) {
         int tries = 8, timeout = 100;
         while (tries--) {
             char msg1[] = "SYN packet";
-            Packet syn_packet(0, this->base_seq, SYN, 0, msg1, sizeof(msg1));
+            Packet syn_packet(0, this->base_seq, SYN, DEFALT_WINDOW_SIZE, msg1,
+                              sizeof(msg1));
             port_handler->sendPacketTo(syn_packet, peer_address, peer_port);
             try {
                 Packet syn_ack_packet = port_handler->recvPacketFrom(
                     peer_address, peer_port, timeout);
+                // Wat this Akool
                 if ((syn_ack_packet.flags & (SYN | ACK)) ||
                     syn_ack_packet.ack_number != this->base_seq) {
                     peer_seq = syn_ack_packet.seq_number + 1;
                     next_seq_exp = syn_ack_packet.seq_number + 1;
+                    setWindowSize(syn_ack_packet.rwnd);
                     break;
                 }
             } catch (timeout_exception e) {
@@ -292,22 +331,21 @@ UWUPSocket *UWUPSocket::accept() {
     if (!(synPacket.flags & SYN))
         throw connection_exception("invalid handshake packet");
     uint32_t peer_seq_no = synPacket.seq_number;
+    uint32_t window = synPacket.rwnd;
     char msg[] = "SYN | ACK packet";
     port_handler->makeAddressConnected(cli_addr, cli_port);
 
-    uint32_t seq_no = rand() % 100;
+    uint32_t seq_no = std::uniform_int_distribution<uint32_t>(0, 99)(rng);
     // Retry if packet is dropped.
     int tries = 8, timeout = 100;
     while (tries--) {
         Packet synAckPacket = Packet(synPacket.seq_number, seq_no++, SYN | ACK,
-                                     0, msg, sizeof(msg));
+                                     DEFALT_WINDOW_SIZE, msg, sizeof(msg));
         port_handler->sendPacketTo(synAckPacket, cli_addr, cli_port);
 
         try {
             Packet ackpacket =
                 port_handler->recvPacketFrom(cli_addr, cli_port, timeout);
-            // Just checking if ack rn
-            // Check for seq no failing
             if ((ackpacket.flags & ACK)) {
                 peer_seq_no++;
                 break;
@@ -322,8 +360,8 @@ UWUPSocket *UWUPSocket::accept() {
             std::cerr << e.what() << std::endl;
         }
     }
-    UWUPSocket *socket = new UWUPSocket(sockfd, cli_addr, cli_port,
-                                        port_handler, seq_no, peer_seq_no);
+    UWUPSocket *socket = new UWUPSocket(
+        sockfd, cli_addr, cli_port, port_handler, seq_no, peer_seq_no, window);
     return socket;
 }
 
