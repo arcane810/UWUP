@@ -11,7 +11,7 @@ Packet PortHandler::recvPacketFrom(std::string address, int port) {
     std::unique_lock<std::mutex> am_lock(m_address_map);
     // if the message accesses are getting messed up, then I shouldn't wait on
     // this one mutex.
-    if (address_map[{address, port}].empty())
+    while (address_map[{address, port}].empty())
         cv_address_map_queue_isEmpty[{address, port}].wait(am_lock);
     Packet p = address_map[{address, port}].front();
     address_map[{address, port}].pop();
@@ -22,7 +22,7 @@ Packet PortHandler::recvPacketFrom(std::string address, int port, int time_ms) {
     std::unique_lock<std::mutex> am_lock(m_address_map);
     // if the message accesses are getting messed up, then I shouldn't wait on
     // this one mutex.
-    if (address_map[{address, port}].empty()) {
+    while (address_map[{address, port}].empty()) {
         if (cv_address_map_queue_isEmpty[{address, port}].wait_for(
                 am_lock, std::chrono::milliseconds(time_ms)) ==
             std::cv_status::timeout) {
@@ -37,6 +37,7 @@ Packet PortHandler::recvPacketFrom(std::string address, int port, int time_ms) {
 void PortHandler::sendPacketTo(Packet packet, std::string address, int port) {
     std::unique_lock<std::mutex> sq_lock(m_send_queue);
     // sq_lock.lock();
+    // std::cout << packet << std::endl;
     send_queue.push({packet, {address, port}});
     sq_lock.unlock();
     cv_send_queue_isEmpty.notify_one();
@@ -72,7 +73,7 @@ void PortHandler::recvThreadFunction() {
             }
             connect_queue.push({{address, port}, Packet(buff, len)});
             cq_lock.unlock();
-            cv_connect_queue_isEmpty.notify_all();
+            cv_connect_queue_isEmpty.notify_one();
         }
 
         if (threadEnd) {
@@ -85,10 +86,13 @@ void PortHandler::sendThreadFunction() {
     while (1) {
 
         std::unique_lock<std::mutex> sq_lock(m_send_queue);
-        if (send_queue.empty()) {
+        while (send_queue.empty()) {
             cv_send_queue_isEmpty.wait(sq_lock);
         }
-        char *data = (char *)send_queue.front().first.packet_struct;
+        // std::cout << send_queue.size() << std::endl;
+        // char *data = (char *)send_queue.front().first.packet_struct;
+        Packet packet = send_queue.front().first;
+        char *data = (char *)packet.packet_struct;
         int len = send_queue.front().first.packet_length;
         std::string to_address = send_queue.front().second.first;
         int to_port = send_queue.front().second.second;

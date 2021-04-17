@@ -17,9 +17,9 @@ class connection_exception : public std::runtime_error {
         : runtime_error("connection exception:" + msg) {}
 };
 
-const int64_t TIMEOUT = 1000;
-const uint32_t MAX_SEND_WINDOW = 1024;
-const uint32_t DEFALT_WINDOW_SIZE = (MAX_SEND_WINDOW / 2) - 300;
+const int64_t TIMEOUT = 5000;
+const uint32_t MAX_SEND_WINDOW = 500;
+const uint32_t DEFALT_WINDOW_SIZE = (MAX_SEND_WINDOW / 2) - 1;
 
 /**
  * Socket Class for the UWUP

@@ -70,7 +70,7 @@ UWUPSocket::UWUPSocket(const UWUPSocket &sock) {
 
 void UWUPSocket::selectiveRepeatReceive() {
     std::vector<Packet> buffer;
-    int ASSUMED_WINDOW = MAX_SEND_WINDOW / 2;
+    int ASSUMED_WINDOW = DEFALT_WINDOW_SIZE + 100;
     // Should I make this larger?
     buffer.resize(ASSUMED_WINDOW + 1, Packet(0, 0, 0, 0, nullptr, 0));
     while (1) {
@@ -375,11 +375,12 @@ std::ostream &operator<<(std::ostream &os, UWUPSocket const &sock) {
 /// @Todo wait if queue is full.
 void UWUPSocket::send(char *data, int len) {
     while (len > 0) {
-        int max_size = std::min(len, MAX_PACKET_SIZE);
+        int max_size = std::min(len, MAX_DATA_SIZE);
         // wait till queue has space
         std::unique_lock<std::mutex> send_queue_lock(m_send_queue);
         send_queue.push(Packet(0, current_seq, 0, 0, data, max_size));
         current_seq++;
+        send_queue_lock.unlock();
         cv_send_queue_isEmpty.notify_one();
         data += max_size;
         len -= max_size;

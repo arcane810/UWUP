@@ -76,6 +76,7 @@ std::ostream &operator<<(std::ostream &os, Packet const &p) {
        << p.ack_number << ' ' << p.seq_number << ' ' << p.rwnd << ' '
        << getFlagStr(p.flags) << '\n'
        << getStatusStr(p.status) << '\n'
+       << p.data_len << '\n'
        << p.packet_struct->data << "\n}" << std::endl;
     return os;
 }
