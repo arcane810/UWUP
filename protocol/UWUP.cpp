@@ -1,5 +1,6 @@
 #include "UWUP.hpp"
 #include <algorithm>
+#include <cassert>
 #include <chrono>
 #include <cstring>
 #include <iostream>
@@ -64,6 +65,7 @@ UWUPSocket::UWUPSocket(const UWUPSocket &sock) {
     peer_port = sock.peer_port;
     port_handler = sock.port_handler;
     base_seq = sock.base_seq;
+    current_seq = sock.base_seq;
     peer_seq = sock.peer_seq;
     send_window_size = sock.send_window_size;
 }
@@ -139,10 +141,12 @@ void UWUPSocket::selectiveRepeatReceive() {
             char msg[] = "ACK packet";
             Packet resp_packet(new_packet.seq_number, 0, ACK, 20, msg,
                                strlen(msg));
-            port_handler->sendPacketTo(resp_packet, peer_address, peer_port);
             if (new_packet.seq_number < peer_seq + windowSize()) {
+                // std::cout << "Got " << new_packet.seq_number << std::endl;
                 new_packet.status = RECEIVED;
                 buffer[new_packet.seq_number % MAX_SEND_WINDOW] = new_packet;
+                port_handler->sendPacketTo(resp_packet, peer_address,
+                                           peer_port);
             }
             while (buffer[peer_seq % MAX_SEND_WINDOW].status == RECEIVED) {
                 std::unique_lock<std::mutex> receive_queue_lock(
@@ -182,7 +186,8 @@ void UWUPSocket::selectiveRepeatSend() {
     int front = 0;
     int num_packets = 0;
 
-    std::cout << "Starting SR" << std::endl;
+    std::cout << "Starting SR. Our seq: " << current_seq << base_seq
+              << " Their seq " << peer_seq << std::endl;
     while (1) {
         if (thread_end)
             break;
@@ -278,12 +283,12 @@ void UWUPSocket::connect(std::string peer_address, int peer_port) {
     port_handler->makeAddressConnected(peer_address, peer_port);
 
     try {
-        this->base_seq = rand() % 100;
+        base_seq = std::uniform_int_distribution<uint32_t>(0, 99)(rng);
         int next_seq_exp = -1;
         int tries = 8, timeout = 100;
         while (tries--) {
             char msg1[] = "SYN packet";
-            Packet syn_packet(0, this->base_seq, SYN, DEFALT_WINDOW_SIZE, msg1,
+            Packet syn_packet(0, base_seq, SYN, DEFALT_WINDOW_SIZE, msg1,
                               sizeof(msg1));
             port_handler->sendPacketTo(syn_packet, peer_address, peer_port);
             try {
@@ -291,7 +296,7 @@ void UWUPSocket::connect(std::string peer_address, int peer_port) {
                     peer_address, peer_port, timeout);
                 // Wat this Akool
                 if ((syn_ack_packet.flags & (SYN | ACK)) ||
-                    syn_ack_packet.ack_number != this->base_seq) {
+                    syn_ack_packet.ack_number != base_seq) {
                     peer_seq = syn_ack_packet.seq_number + 1;
                     next_seq_exp = syn_ack_packet.seq_number + 1;
                     setWindowSize(syn_ack_packet.rwnd);
@@ -309,11 +314,13 @@ void UWUPSocket::connect(std::string peer_address, int peer_port) {
         char msg2[] = "ACK packet";
         Packet ackPacket(next_seq_exp, base_seq, ACK, 0, msg2, sizeof(msg2));
         port_handler->sendPacketTo(ackPacket, peer_address, peer_port);
+        base_seq++;
     } catch (const std::runtime_error &e) {
         port_handler->deleteAddressQueue(peer_address, peer_port);
 
         std::cerr << e.what() << std::endl;
     }
+
     receive_thread = std::thread(&UWUPSocket::selectiveRepeatReceive, this);
     send_thread = std::thread(&UWUPSocket::selectiveRepeatSend, this);
 }
@@ -332,14 +339,15 @@ UWUPSocket *UWUPSocket::accept() {
         throw connection_exception("invalid handshake packet");
     uint32_t peer_seq_no = synPacket.seq_number;
     uint32_t window = synPacket.rwnd;
-    char msg[] = "SYN | ACK packet";
     port_handler->makeAddressConnected(cli_addr, cli_port);
 
     uint32_t seq_no = std::uniform_int_distribution<uint32_t>(0, 99)(rng);
     // Retry if packet is dropped.
     int tries = 8, timeout = 100;
     while (tries--) {
-        Packet synAckPacket = Packet(synPacket.seq_number, seq_no++, SYN | ACK,
+
+        char msg[] = "SYN | ACK packet";
+        Packet synAckPacket = Packet(synPacket.seq_number, seq_no, SYN | ACK,
                                      DEFALT_WINDOW_SIZE, msg, sizeof(msg));
         port_handler->sendPacketTo(synAckPacket, cli_addr, cli_port);
 
@@ -347,7 +355,8 @@ UWUPSocket *UWUPSocket::accept() {
             Packet ackpacket =
                 port_handler->recvPacketFrom(cli_addr, cli_port, timeout);
             if ((ackpacket.flags & ACK)) {
-                peer_seq_no++;
+                assert(peer_seq_no + 1 == ackpacket.seq_number);
+                peer_seq_no = ackpacket.seq_number;
                 break;
             }
 
@@ -360,8 +369,9 @@ UWUPSocket *UWUPSocket::accept() {
             std::cerr << e.what() << std::endl;
         }
     }
-    UWUPSocket *socket = new UWUPSocket(
-        sockfd, cli_addr, cli_port, port_handler, seq_no, peer_seq_no, window);
+    UWUPSocket *socket =
+        new UWUPSocket(sockfd, cli_addr, cli_port, port_handler, seq_no + 1,
+                       peer_seq_no + 1, window);
     return socket;
 }
 

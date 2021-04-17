@@ -18,7 +18,7 @@ class connection_exception : public std::runtime_error {
 };
 
 const int64_t TIMEOUT = 5000;
-const uint32_t MAX_SEND_WINDOW = 500;
+const uint32_t MAX_SEND_WINDOW = 200;
 const uint32_t DEFALT_WINDOW_SIZE = (MAX_SEND_WINDOW / 2) - 1;
 
 /**
