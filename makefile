@@ -1,6 +1,6 @@
 CC = g++
 OUT_DIR = build
-CFLAGS = -c -std=c++17 -g -Og 
+CFLAGS = -c -std=c++17 -g
 LIBFLAGS = -pthread
 INC = -I src/includes
 .PHONY: test clean
@@ -34,7 +34,7 @@ dir:
 test:
 			./scripts/test
 
-clean : 
+clean: 
 			rm -rf $(OUT_DIR)
 			@mkdir -p $(OUT_DIR)
 			

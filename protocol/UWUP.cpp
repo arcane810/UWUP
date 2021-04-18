@@ -36,6 +36,7 @@ UWUPSocket::UWUPSocket(int sockfd, std::string peer_address, int peer_port,
     thread_end = false;
     receive_thread = std::thread(&UWUPSocket::selectiveRepeatReceive, this);
     send_thread = std::thread(&UWUPSocket::selectiveRepeatSend, this);
+    connection_closed = NOT_CLOSED;
 }
 
 UWUPSocket::~UWUPSocket() {
@@ -68,6 +69,7 @@ UWUPSocket::UWUPSocket(const UWUPSocket &sock) {
     current_seq = sock.base_seq;
     peer_seq = sock.peer_seq;
     send_window_size = sock.send_window_size;
+    connection_closed = sock.connection_closed;
 }
 
 void UWUPSocket::selectiveRepeatReceive() {
@@ -98,33 +100,10 @@ void UWUPSocket::selectiveRepeatReceive() {
             }
             send_window[pk_no].first.status = ACKED;
             send_window_lock.unlock();
-        } else if (new_packet.flags & (FIN | ACK)) {
-            thread_end = true;
-            std::unique_lock<std::mutex> send_window_lock(m_send_window,
-                                                          std::defer_lock);
-            std::unique_lock<std::mutex> send_queue_lock(m_send_queue,
-                                                         std::defer_lock);
-            std::lock(send_window_lock, send_queue_lock);
-
-            // Prevent possible infinite wait in selectiveRepeatSend
-            cv_send_queue_isEmpty.notify_all();
-
-            int window_size = windowSize();
-            bool inflight_packets = false;
-            for (int i = last_confirmed_seq + 1;
-                 i < last_confirmed_seq + window_size + 1; i++) {
-                int current_position = i % MAX_SEND_WINDOW;
-                if (send_window[current_position].first.status == NOT_ACKED) {
-                    inflight_packets = true;
-                }
-            }
-            if (!send_queue.empty() || inflight_packets) {
-                throw connection_exception(
-                    "Unexpected Error: Peer closed connection, but unsent "
-                    "packets present!");
-            }
-            send_window_lock.unlock();
-            send_queue_lock.unlock();
+        } else if (new_packet.flags & FIN) {
+            peer_fin_pack_seq_no = new_packet.seq_number;
+            close(PEER_CLOSED);
+            break;
         } else if ((new_packet.flags & SYN)) {
             std::cout << "Unexpected packet\n" << new_packet << std::endl;
         } else {
@@ -181,11 +160,9 @@ void UWUPSocket::setWindowSize(uint32_t window_size) {
 void UWUPSocket::selectiveRepeatSend() {
     send_window.resize(MAX_SEND_WINDOW,
                        std::make_pair(Packet(0, 0, 0, 0, nullptr, 0), 0));
-
     int base = 0;
     int front = 0;
     int num_packets = 0;
-
     std::cout << "Starting SR. Our seq: " << current_seq << base_seq
               << " Their seq " << peer_seq << std::endl;
     while (1) {
@@ -207,6 +184,10 @@ void UWUPSocket::selectiveRepeatSend() {
         // If we have no packets that need to be serviced, wait till
         // application layer sends packets
         if (num_packets == 0 && send_queue.empty()) {
+            std::unique_lock<std::mutex> connection_closed_lock(m_connection_closed);
+            if(connection_closed != NOT_CLOSED)
+                break;
+            connection_closed_lock.unlock();
             std::cout << "Waiting for Packets to send" << std::endl;
             cv_send_queue_isEmpty.wait(send_queue_lock);
             std::cout << "Got Packets to send" << std::endl;
@@ -273,6 +254,77 @@ void UWUPSocket::selectiveRepeatSend() {
             }
         }
         send_window_lock.unlock();
+    }
+    std::unique_lock<std::mutex> connection_closed_lock(m_connection_closed);
+    if(connection_closed != NOT_CLOSED) {
+        finish((UWUPSocket::connection_closed_status)connection_closed);
+    } 
+    connection_closed_lock.unlock();
+}
+
+void UWUPSocket::finish(UWUPSocket::connection_closed_status closer_source) {
+    if(closer_source == SELF_CLOSED) {
+        // Send FIN, recieve FIN-ACK, follow up with ACK
+        try {
+            int tries = 8, timeout = 100;
+            int resp_ack_number;
+            while (tries--) {
+                char msg1[] = "FIN packet";
+                Packet fin_packet(0, current_seq, FIN, windowSize(), msg1,
+                                sizeof(msg1));
+                port_handler->sendPacketTo(fin_packet, peer_address, peer_port);
+                try {
+                    Packet fin_ack_packet = port_handler->recvPacketFrom(
+                        peer_address, peer_port, timeout);
+                    // Wat this Akool
+                    if ((fin_ack_packet.flags & (FIN | ACK))) {
+                        resp_ack_number = fin_ack_packet.seq_number;
+                        break;
+                    }
+                } catch (timeout_exception e) {
+                    std::cerr << "SYN timeout in " << timeout << " ms."
+                            << std::endl;
+                    timeout *= 2;
+                } catch (const std::exception &e) {
+                    std::cerr << e.what() << std::endl;
+                }
+            }
+
+            current_seq++;
+            char msg2[] = "ACK packet";
+            Packet ackPacket(resp_ack_number, current_seq, ACK, 0, msg2, sizeof(msg2));
+            // Problem, socket closes right after this, so what do we do here lol?
+            // Maybe just send it several times and call it a day?
+            port_handler->sendPacketTo(ackPacket, peer_address, peer_port);
+            current_seq++;
+        } catch (const std::runtime_error &e) {
+            std::cerr << e.what() << std::endl;
+        }
+    } else {
+        int tries = 8, timeout = 100;
+        while (tries--) {
+
+            char msg[] = "FIN | ACK packet";
+            Packet finAckPacket = Packet(peer_fin_pack_seq_no, current_seq, FIN | ACK,
+                                        DEFALT_WINDOW_SIZE, msg, sizeof(msg));
+            port_handler->sendPacketTo(finAckPacket, peer_address, peer_port);
+
+            try {
+                Packet ackpacket =
+                    port_handler->recvPacketFrom(peer_address, peer_port, timeout);
+                if ((ackpacket.flags & ACK)) {
+                    assert(peer_fin_pack_seq_no + 1 == ackpacket.seq_number);
+                    break;
+                }
+
+            } catch (timeout_exception e) {
+                std::cerr << "FIN|ACK timeout in " << timeout << " ms."
+                        << std::endl;
+                timeout *= 2;
+            } catch (const std::exception &e) {
+                std::cerr << e.what() << std::endl;
+            }
+        }
     }
 }
 
@@ -384,6 +436,13 @@ std::ostream &operator<<(std::ostream &os, UWUPSocket const &sock) {
 }
 /// @Todo wait if queue is full.
 void UWUPSocket::send(char *data, int len) {
+    std::unique_lock<std::mutex> connection_closed_lock(m_connection_closed);
+    if(connection_closed == SELF_CLOSED) {
+        throw connection_exception("Socket closed, but client tried to add data!");
+    } else if(connection_closed == PEER_CLOSED) {
+        throw connection_exception("Peer closed socket, but client tried to add data!");
+    }
+    connection_closed_lock.unlock();
     while (len > 0) {
         int max_size = std::min(len, MAX_DATA_SIZE);
         // wait till queue has space
@@ -418,4 +477,10 @@ int UWUPSocket::recv(char *data, int len) {
     }
     std::cout << "DONE RECV: " << added << std::endl;
     return added;
+}
+
+void UWUPSocket::close(UWUPSocket::connection_closed_status closer_source) {
+    std::unique_lock<std::mutex> connection_closed_lock(m_connection_closed);
+    connection_closed = closer_source;
+    connection_closed_lock.unlock();
 }

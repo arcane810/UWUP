@@ -25,6 +25,8 @@ const uint32_t DEFALT_WINDOW_SIZE = (MAX_SEND_WINDOW / 2) - 1;
  * Socket Class for the UWUP
  */
 class UWUPSocket {
+
+    enum connection_closed_status {NOT_CLOSED, SELF_CLOSED, PEER_CLOSED};
     /// Thread handling sending ops for selective repeat
     std::thread send_thread;
     /// Thread handling receive operations for selective repeat
@@ -35,6 +37,10 @@ class UWUPSocket {
     int my_port;
     /// port of the peer to which the connection had been established to
     bool is_listen;
+    /// flag to check if connection has been closed, and if so by whom.
+    /// m_connection_closed to use.
+    /// Use values defined in connection_closed_status
+    int connection_closed;
     /// thread end flag
     bool thread_end;
     /// the sequence number of the next socket
@@ -48,6 +54,8 @@ class UWUPSocket {
     uint32_t peer_seq;
     /// send window size
     uint32_t send_window_size;
+    /// The sequence number of the FIN packet sent by the peer
+    uint32_t peer_fin_pack_seq_no;
     /// Send Window
     std::vector<std::pair<Packet, int64_t>> send_window;
     /// Receive Window
@@ -64,6 +72,8 @@ class UWUPSocket {
     std::mutex m_send_window;
     /// mutex for recieve window
     std::mutex m_window_size;
+    /// mutex for connection closed flag
+    std::mutex m_connection_closed;
     /// CV for send queue
     std::condition_variable cv_send_queue_isEmpty;
     /// CV for recv queue
@@ -75,6 +85,8 @@ class UWUPSocket {
 
     void selectiveRepeatSend();
     void selectiveRepeatReceive();
+
+    void finish(connection_closed_status closer_source);
 
     int windowSize();
     void setWindowSize(uint32_t window_size);
@@ -130,4 +142,6 @@ class UWUPSocket {
      * Function to send the packet to the connected peer
      */
     int recv(char *data, int len);
+
+    void close(UWUPSocket::connection_closed_status closer_source);
 };
