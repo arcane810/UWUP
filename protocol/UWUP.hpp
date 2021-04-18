@@ -26,7 +26,7 @@ const uint32_t DEFALT_WINDOW_SIZE = (MAX_SEND_WINDOW / 2) - 1;
  */
 class UWUPSocket {
 
-    enum connection_closed_status {NOT_CLOSED, SELF_CLOSED, PEER_CLOSED};
+    enum connection_closed_status { NOT_CLOSED, SELF_CLOSED, PEER_CLOSED };
     /// Thread handling sending ops for selective repeat
     std::thread send_thread;
     /// Thread handling receive operations for selective repeat
@@ -77,7 +77,7 @@ class UWUPSocket {
     /// CV for send queue
     std::condition_variable cv_send_queue_isEmpty;
     /// CV for recv queue
-    std::condition_variable cv_receive_queue_isFull;
+    std::condition_variable cv_receive_queue_has_data;
     /// Random object for starting sequence numbers
     std::mt19937 rng;
 
@@ -143,5 +143,6 @@ class UWUPSocket {
      */
     int recv(char *data, int len);
 
-    void close(UWUPSocket::connection_closed_status closer_source);
+    void
+    close(UWUPSocket::connection_closed_status closer_source = SELF_CLOSED);
 };
