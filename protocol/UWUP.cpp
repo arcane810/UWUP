@@ -107,7 +107,7 @@ void UWUPSocket::selectiveRepeatReceive() {
                 std::chrono::steady_clock::now().time_since_epoch().count();
             int64_t since_last_recv =
                 (current_time - last_recv_time) / 1'000'000;
-            if (last_recv_time == 0 && since_last_recv > KEEP_ALIVE_TIMEOUT) {
+            if (last_recv_time != 0 && since_last_recv > KEEP_ALIVE_TIMEOUT) {
                 throw new timeout_exception(
                     "No response recieved in " +
                     std::to_string(since_last_recv) + " ms. Keep alive of " +
@@ -308,7 +308,7 @@ void UWUPSocket::finish(UWUPSocket::connection_closed_status closer_source) {
     if (closer_source == SELF_CLOSED) {
         // Send FIN, recieve FIN-ACK, follow up with ACK
         try {
-            int tries = 8, timeout = 100;
+            int tries = 6, per_timeout = 10, timeout = 100, cur_timeout_step = 0;
             int resp_ack_number;
             while (tries--) {
                 char msg1[] = "FIN packet";
@@ -327,7 +327,10 @@ void UWUPSocket::finish(UWUPSocket::connection_closed_status closer_source) {
                 } catch (timeout_exception e) {
                     std::cerr << "FIN timeout in " << timeout << " ms."
                               << std::endl;
-                    timeout *= 2;
+                    if(--cur_timeout_step == 0) {
+                        timeout *= 2;
+                        cur_timeout_step = per_timeout;
+                    }
                 } catch (const std::exception &e) {
                     std::cerr << e.what() << std::endl;
                 }
@@ -340,18 +343,21 @@ void UWUPSocket::finish(UWUPSocket::connection_closed_status closer_source) {
                              sizeof(msg2));
             // Problem, socket closes right after this, so what do we do here
             // lol? Maybe just send it several times and call it a day?
-            tries = 6, timeout = 100;
+            tries = 6, per_timeout = 10, timeout = 100, cur_timeout_step = 0;
             while (tries--) {
                 port_handler->sendPacketTo(ackPacket, peer_address, peer_port);
                 std::this_thread::sleep_for(std::chrono::milliseconds(timeout));
-                timeout *= 2;
+                if(--cur_timeout_step == 0) {
+                    timeout *= 2;
+                    cur_timeout_step = per_timeout;
+                }
             }
             current_seq++;
         } catch (const std::runtime_error &e) {
             std::cerr << e.what() << std::endl;
         }
     } else {
-        int tries = 8, timeout = 100;
+        int tries = 6, per_timeout = 10, timeout = 100, cur_timeout_step = 0;
         std::cout << "PEER FIN RECEIVED" << std::endl;
         while (tries--) {
 
@@ -373,7 +379,10 @@ void UWUPSocket::finish(UWUPSocket::connection_closed_status closer_source) {
             } catch (timeout_exception e) {
                 std::cerr << "FIN|ACK timeout in " << timeout << " ms."
                           << std::endl;
-                timeout *= 2;
+                if(--cur_timeout_step == 0) {
+                    timeout *= 2;
+                    cur_timeout_step = per_timeout;
+                }
             } catch (const std::exception &e) {
                 std::cerr << e.what() << std::endl;
             }
@@ -394,7 +403,7 @@ void UWUPSocket::connect(std::string peer_address, int peer_port) {
         base_seq = std::uniform_int_distribution<uint32_t>(0, 99)(rng);
         current_seq = base_seq;
         int next_seq_exp = -1;
-        int tries = 8, timeout = 100;
+        int tries = 6, per_timeout = 10, timeout = 100, cur_timeout_step = 0;
         while (tries--) {
             char msg1[] = "SYN packet";
             std::cout << "SYN Packet FLAGS: "
@@ -418,7 +427,10 @@ void UWUPSocket::connect(std::string peer_address, int peer_port) {
             } catch (timeout_exception e) {
                 std::cerr << "SYN timeout in " << timeout << " ms."
                           << std::endl;
-                timeout *= 2;
+                if(--cur_timeout_step == 0) {
+                    timeout *= 2;
+                    cur_timeout_step = per_timeout;
+                }
             } catch (const std::exception &e) {
                 std::cerr << e.what() << std::endl;
             }
@@ -458,7 +470,7 @@ UWUPSocket *UWUPSocket::accept() {
 
     uint32_t seq_no = std::uniform_int_distribution<uint32_t>(0, 99)(rng);
     // Retry if packet is dropped.
-    int tries = 8, timeout = 100;
+    int tries = 6, per_timeout = 10, timeout = 100, cur_timeout_step = 0;
     while (tries--) {
 
         char msg[] = "SYN | ACK packet";
@@ -478,7 +490,10 @@ UWUPSocket *UWUPSocket::accept() {
         } catch (timeout_exception e) {
             std::cerr << "SYN|ACK timeout in " << timeout << " ms."
                       << std::endl;
-            timeout *= 2;
+            if(--cur_timeout_step == 0) {
+                timeout *= 2;
+                cur_timeout_step = per_timeout;
+            }
         } catch (const std::exception &e) {
             port_handler->deleteAddressQueue(cli_addr, cli_port);
             std::cerr << e.what() << std::endl;
