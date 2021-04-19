@@ -8,6 +8,7 @@
 int main(int argc, char *argv[]) {
 
     UWUPSocket socket;
+    socket.set_options(UWUPSocket::SET_KEEP_ALIVE, true);
     socket.connect("127.0.0.1", 8080);
     int i = 50;
     char data[20480];

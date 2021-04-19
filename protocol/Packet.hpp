@@ -24,9 +24,11 @@ struct PacketStruct {
  * Flag mask values
  */
 
+const uint32_t NOFLAGS = 0;
 const uint32_t SYN = 1;
 const uint32_t ACK = 2;
 const uint32_t FIN = 4;
+const uint32_t KA = 8;
 
 enum status { ACKED, NOT_ACKED, NOT_SENT, INACTIVE, RECEIVED };
 /**

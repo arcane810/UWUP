@@ -17,10 +17,6 @@ class connection_exception : public std::runtime_error {
         : runtime_error("connection exception:" + msg) {}
 };
 
-const int64_t TIMEOUT = 5000;
-const uint32_t MAX_SEND_WINDOW = 200;
-const uint32_t DEFALT_WINDOW_SIZE = (MAX_SEND_WINDOW / 2) - 1;
-
 /**
  * Socket Class for the UWUP
  */
@@ -36,7 +32,11 @@ class UWUPSocket {
     /// flag to check if a connection has been established on the socket
     int my_port;
     /// port of the peer to which the connection had been established to
-    bool is_listen;
+    bool is_connected = false;
+    /// Keep alive flag
+    bool keep_alive;
+    /// Last timestamp at which we recieved a packet. For timeout purposes
+    int64_t last_recv_time;
     /// flag to check if connection has been closed, and if so by whom.
     /// m_connection_closed to use.
     /// Use values defined in connection_closed_status
@@ -81,6 +81,11 @@ class UWUPSocket {
     /// Random object for starting sequence numbers
     std::mt19937 rng;
 
+    int64_t TIMEOUT = 100;
+    int64_t KEEP_ALIVE_TIMEOUT = 2000;
+    uint32_t MAX_SEND_WINDOW = 50;
+    uint32_t DEFALT_WINDOW_SIZE = (MAX_SEND_WINDOW / 2) - 1;
+
     friend std::ostream &operator<<(std::ostream &os, UWUPSocket const &sock);
 
     void selectiveRepeatSend();
@@ -92,6 +97,8 @@ class UWUPSocket {
     void setWindowSize(uint32_t window_size);
 
   public:
+    enum params { SET_TIMEOUT, SET_MAX_WINDOW_SIZE, SET_KEEP_ALIVE };
+
     /// Port Handler
     PortHandler *port_handler;
     /// the peer address
@@ -117,7 +124,10 @@ class UWUPSocket {
     UWUPSocket(int sockfd, std::string peer_address, int peer_port,
                PortHandler *port_handler, uint32_t current_seq,
                uint32_t peer_seq, uint32_t send_window_size);
-
+    /**
+     * A function that sets sock opts
+     */
+    void set_options(params param, size_t value);
     /**
      * A function that accepts a connection and returns a connected socket
      */

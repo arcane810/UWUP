@@ -33,17 +33,34 @@ UWUPSocket::UWUPSocket(int sockfd, std::string peer_address, int peer_port,
     : sockfd(sockfd), peer_address(peer_address), peer_port(peer_port),
       port_handler(port_handler), current_seq(base_seq), base_seq(base_seq),
       peer_seq(peer_seq), send_window_size(send_window_size) {
+    is_connected = true;
     thread_end = false;
     receive_thread = std::thread(&UWUPSocket::selectiveRepeatReceive, this);
     send_thread = std::thread(&UWUPSocket::selectiveRepeatSend, this);
     connection_closed = NOT_CLOSED;
+    keep_alive = false;
 }
 
 UWUPSocket::~UWUPSocket() { close(SELF_CLOSED); }
 
+void UWUPSocket::set_options(params param, uint64_t value) {
+    if (is_connected) {
+        throw std::runtime_error(
+            "Attemped to set parameters of an active connection.");
+    }
+
+    if (param == SET_TIMEOUT) {
+        TIMEOUT = (int64_t)value;
+    } else if (param == SET_MAX_WINDOW_SIZE) {
+        MAX_SEND_WINDOW = (uint32_t)value;
+        uint32_t DEFALT_WINDOW_SIZE = (MAX_SEND_WINDOW / 2) - 1;
+    } else if (param == SET_KEEP_ALIVE) {
+        keep_alive = (value > 0);
+    }
+}
+
 void UWUPSocket::listen(int port) {
     my_port = port;
-    is_listen = true;
     struct sockaddr_in servaddr;
 
     servaddr.sin_family = AF_INET;
@@ -66,6 +83,7 @@ UWUPSocket::UWUPSocket(const UWUPSocket &sock) {
     peer_seq = sock.peer_seq;
     send_window_size = sock.send_window_size;
     connection_closed = sock.connection_closed;
+    is_connected = sock.is_connected;
 }
 
 void UWUPSocket::selectiveRepeatReceive() {
@@ -80,8 +98,20 @@ void UWUPSocket::selectiveRepeatReceive() {
         try {
             new_packet =
                 port_handler->recvPacketFrom(peer_address, peer_port, 1000);
+            last_recv_time =
+                std::chrono::steady_clock::now().time_since_epoch().count();
             // std::cout << "Got  packet " << new_packet << std::endl;
         } catch (timeout_exception &e) {
+            int64_t current_time =
+                std::chrono::steady_clock::now().time_since_epoch().count();
+            int64_t since_last_recv =
+                (current_time - last_recv_time) / 1'000'000;
+            if (since_last_recv > KEEP_ALIVE_TIMEOUT) {
+                throw new timeout_exception(
+                    "No response recieved in " +
+                    std::to_string(since_last_recv) + " ms. Keep alive of " +
+                    std::to_string(KEEP_ALIVE_TIMEOUT) + " ms exceeded!");
+            }
             continue;
         }
         if (new_packet.flags & ACK) {
@@ -366,8 +396,11 @@ void UWUPSocket::connect(std::string peer_address, int peer_port) {
         int tries = 8, timeout = 100;
         while (tries--) {
             char msg1[] = "SYN packet";
-            Packet syn_packet(0, current_seq, SYN, DEFALT_WINDOW_SIZE, msg1,
-                              sizeof(msg1));
+            std::cout << "SYN Packet FLAGS: "
+                      << (SYN | ((keep_alive) ? KA : NOFLAGS)) << std::endl;
+            Packet syn_packet(0, current_seq,
+                              SYN | ((keep_alive) ? KA : NOFLAGS),
+                              DEFALT_WINDOW_SIZE, msg1, sizeof(msg1));
             port_handler->sendPacketTo(syn_packet, peer_address, peer_port);
             try {
                 Packet syn_ack_packet = port_handler->recvPacketFrom(
@@ -416,6 +449,8 @@ UWUPSocket *UWUPSocket::accept() {
     Packet synPacket = new_connection.second;
     if (!(synPacket.flags & SYN))
         throw connection_exception("invalid handshake packet");
+    if (synPacket.flags & KA)
+        keep_alive = true;
     uint32_t peer_seq_no = synPacket.seq_number;
     uint32_t window = synPacket.rwnd;
     port_handler->makeAddressConnected(cli_addr, cli_port);
