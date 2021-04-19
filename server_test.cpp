@@ -10,6 +10,11 @@
 #include <thread>
 
 int main(int argc, char *argv[]) {
+
+    std::string file_location = "upload_file";
+    if (argc > 1) {
+        file_location = std::string(argv[1]);
+    }
     // Init socket
     int sockfd;
     int my_port = 8080;
@@ -18,7 +23,7 @@ int main(int argc, char *argv[]) {
         socket.listen(my_port);
         auto sock = socket.accept();
         std::cout << "CONNECTION ESTABLISHED" << std::endl;
-        FILE *fp = fopen("outfile.log", "rb");
+        FILE *fp = fopen(file_location.c_str(), "rb");
         int len = 0;
         char data[10240];
         char msg[] = "Test Message";

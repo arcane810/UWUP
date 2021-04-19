@@ -6,7 +6,10 @@
 #include <string>
 
 int main(int argc, char *argv[]) {
-
+    std::string save_location = "downloaded_file";
+    if (argc > 1) {
+        save_location = std::string(argv[1]);
+    }
     try {
         UWUPSocket socket;
         socket.set_options(UWUPSocket::SET_KEEP_ALIVE, true);
@@ -14,7 +17,7 @@ int main(int argc, char *argv[]) {
         int i = 50;
         char data[20480];
         memset(data, 0, sizeof(data));
-        FILE *fp = fopen("out.txt", "wb+");
+        FILE *fp = fopen(save_location.c_str(), "wb+");
         int len;
         while ((len = socket.recv(data, 20480)) > 0) {
             // std::cout << data << std::endl;
