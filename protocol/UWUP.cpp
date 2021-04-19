@@ -308,7 +308,7 @@ void UWUPSocket::finish(UWUPSocket::connection_closed_status closer_source) {
     if (closer_source == SELF_CLOSED) {
         // Send FIN, recieve FIN-ACK, follow up with ACK
         try {
-            int tries = 6, per_timeout = 10, timeout = 100, cur_timeout_step = 0;
+            int tries = 60, per_timeout = 10, timeout = 100, cur_timeout_step = 0;
             int resp_ack_number;
             while (tries--) {
                 char msg1[] = "FIN packet";
@@ -343,7 +343,7 @@ void UWUPSocket::finish(UWUPSocket::connection_closed_status closer_source) {
                              sizeof(msg2));
             // Problem, socket closes right after this, so what do we do here
             // lol? Maybe just send it several times and call it a day?
-            tries = 6, per_timeout = 10, timeout = 100, cur_timeout_step = 0;
+            tries = 60, per_timeout = 10, timeout = 100, cur_timeout_step = 0;
             while (tries--) {
                 port_handler->sendPacketTo(ackPacket, peer_address, peer_port);
                 std::this_thread::sleep_for(std::chrono::milliseconds(timeout));
@@ -357,7 +357,7 @@ void UWUPSocket::finish(UWUPSocket::connection_closed_status closer_source) {
             std::cerr << e.what() << std::endl;
         }
     } else {
-        int tries = 6, per_timeout = 10, timeout = 100, cur_timeout_step = 0;
+        int tries = 60, per_timeout = 10, timeout = 100, cur_timeout_step = 0;
         std::cout << "PEER FIN RECEIVED" << std::endl;
         while (tries--) {
 
@@ -403,7 +403,7 @@ void UWUPSocket::connect(std::string peer_address, int peer_port) {
         base_seq = std::uniform_int_distribution<uint32_t>(0, 99)(rng);
         current_seq = base_seq;
         int next_seq_exp = -1;
-        int tries = 6, per_timeout = 10, timeout = 100, cur_timeout_step = 0;
+        int tries = 60, per_timeout = 10, timeout = 100, cur_timeout_step = 0;
         while (tries--) {
             char msg1[] = "SYN packet";
             std::cout << "SYN Packet FLAGS: "
@@ -470,7 +470,7 @@ UWUPSocket *UWUPSocket::accept() {
 
     uint32_t seq_no = std::uniform_int_distribution<uint32_t>(0, 99)(rng);
     // Retry if packet is dropped.
-    int tries = 6, per_timeout = 10, timeout = 100, cur_timeout_step = 0;
+    int tries = 60, per_timeout = 10, timeout = 100, cur_timeout_step = 0;
     while (tries--) {
 
         char msg[] = "SYN | ACK packet";
