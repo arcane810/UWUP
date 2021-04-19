@@ -82,7 +82,7 @@ class UWUPSocket {
     std::mt19937 rng;
 
     int64_t TIMEOUT = 100;
-    int64_t KEEP_ALIVE_TIMEOUT = 2000;
+    int64_t KEEP_ALIVE_TIMEOUT = 50000;
     uint32_t MAX_SEND_WINDOW = 50;
     uint32_t DEFALT_WINDOW_SIZE = (MAX_SEND_WINDOW / 2) - 1;
 

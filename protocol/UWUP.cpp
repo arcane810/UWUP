@@ -56,6 +56,7 @@ void UWUPSocket::set_options(params param, uint64_t value) {
         uint32_t DEFALT_WINDOW_SIZE = (MAX_SEND_WINDOW / 2) - 1;
     } else if (param == SET_KEEP_ALIVE) {
         keep_alive = (value > 0);
+        last_recv_time = 0;
     }
 }
 
@@ -106,7 +107,7 @@ void UWUPSocket::selectiveRepeatReceive() {
                 std::chrono::steady_clock::now().time_since_epoch().count();
             int64_t since_last_recv =
                 (current_time - last_recv_time) / 1'000'000;
-            if (since_last_recv > KEEP_ALIVE_TIMEOUT) {
+            if (last_recv_time == 0 && since_last_recv > KEEP_ALIVE_TIMEOUT) {
                 throw new timeout_exception(
                     "No response recieved in " +
                     std::to_string(since_last_recv) + " ms. Keep alive of " +
@@ -226,9 +227,8 @@ void UWUPSocket::selectiveRepeatSend() {
                 break;
             connection_closed_lock.unlock();
             std::cout << "Waiting for Packets to send" << std::endl;
-            std::cout << send_queue.size() << std::endl;
             cv_send_queue_isEmpty.wait(send_queue_lock);
-            std::cout << send_queue.size() << std::endl;
+            // std::cout << "Connectioned closed check in send: " << connection_closed << std::endl;
             std::cout << "Got Packets to send" << std::endl;
             if (thread_end)
                 break;
@@ -295,6 +295,7 @@ void UWUPSocket::selectiveRepeatSend() {
         send_window_lock.unlock();
     }
     std::unique_lock<std::mutex> connection_closed_lock(m_connection_closed);
+    std::cout << "CONNECTION CLOSED STATUS: " << connection_closed  << std::endl;
     if (connection_closed != NOT_CLOSED) {
         finish((UWUPSocket::connection_closed_status)connection_closed);
     }
@@ -303,6 +304,7 @@ void UWUPSocket::selectiveRepeatSend() {
 }
 
 void UWUPSocket::finish(UWUPSocket::connection_closed_status closer_source) {
+    std::cout << "FINISH STARTED" << std::endl;
     if (closer_source == SELF_CLOSED) {
         // Send FIN, recieve FIN-ACK, follow up with ACK
         try {
@@ -318,8 +320,7 @@ void UWUPSocket::finish(UWUPSocket::connection_closed_status closer_source) {
                         peer_address, peer_port, timeout);
                     if ((fin_ack_packet.flags & FIN) &&
                         (fin_ack_packet.flags & ACK)) {
-                        std::cout << fin_ack_packet.seq_number << "\t"
-                                  << "\tFIN-ACK" << std::endl;
+                        std::cout << "Sending FIN-ACK" << "\t" << fin_ack_packet.seq_number << std::endl;
                         resp_ack_number = fin_ack_packet.seq_number;
                         break;
                     }
@@ -358,7 +359,7 @@ void UWUPSocket::finish(UWUPSocket::connection_closed_status closer_source) {
             Packet finAckPacket =
                 Packet(peer_fin_pack_seq_no, current_seq, FIN | ACK,
                        DEFALT_WINDOW_SIZE, msg, sizeof(msg));
-            std::cout << "FIN-ACK SEND" << std::endl;
+            std::cout << "SENDING FIN-ACK: " << peer_fin_pack_seq_no << std::endl;
             port_handler->sendPacketTo(finAckPacket, peer_address, peer_port);
 
             try {
@@ -533,7 +534,7 @@ int UWUPSocket::recv(char *data, int len) {
         std::cout << "FIN RECEIVED" << std::endl;
         thread_end = true;
         peer_fin_pack_seq_no = receive_queue.front().seq_number;
-        cv_send_queue_isEmpty.notify_all();
+        std::cout << "FIN TYPE: " << PEER_CLOSED << std::endl;
         close(PEER_CLOSED);
         return 0;
     }
@@ -549,8 +550,10 @@ int UWUPSocket::recv(char *data, int len) {
 
 void UWUPSocket::close(UWUPSocket::connection_closed_status closer_source) {
     std::unique_lock<std::mutex> connection_closed_lock(m_connection_closed);
+    // std::cout << "Closer source " << closer_source << std::endl;
     connection_closed = closer_source;
     connection_closed_lock.unlock();
+    cv_send_queue_isEmpty.notify_all();
     try {
         send_thread.join();
     } catch (...) {
