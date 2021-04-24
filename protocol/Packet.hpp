@@ -1,4 +1,8 @@
 #include <cstdint>
+#include <iostream>
+
+const int MAX_PACKET_SIZE = 2048;
+const int MAX_DATA_SIZE = MAX_PACKET_SIZE - 13;
 
 /**
  * A structure to store the packed structure
@@ -17,6 +21,17 @@ struct PacketStruct {
 } __attribute__((packed));
 
 /**
+ * Flag mask values
+ */
+
+const uint32_t NOFLAGS = 0;
+const uint32_t SYN = 1;
+const uint32_t ACK = 2;
+const uint32_t FIN = 4;
+const uint32_t KA = 8;
+
+enum status { ACKED, NOT_ACKED, NOT_SENT, INACTIVE, RECEIVED };
+/**
  * A class to handle packet structsa, etc.
  */
 class Packet {
@@ -25,6 +40,25 @@ class Packet {
     PacketStruct *packet_struct;
     /// Total length of packet (length of data + length of header)
     int packet_length;
+    /// ACK Number ( 4 Bytes )
+    uint32_t ack_number;
+    /// Seq Number ( 4 Bytes )
+    uint32_t seq_number;
+    /// Flags ( 1 Byte )
+    uint8_t flags;
+    /// Advertised Receive Window ( 4 Bytes )
+    uint32_t rwnd;
+    /// Data recvd
+    // char *data;
+    /// Length of data
+    uint32_t data_len;
+    /// Status of Packed
+    uint32_t status = INACTIVE;
 
-    Packet(char *buffer, int len);
+    Packet(const char *buffer, int len);
+    Packet(uint32_t ack_number, uint32_t seq_number, uint32_t flags,
+           uint32_t rwnd, char *buffer, int len);
+    // ~Packet();
+    std::string getFlagStr(uint32_t flag);
+    friend std::ostream &operator<<(std::ostream &os, Packet const &p);
 };

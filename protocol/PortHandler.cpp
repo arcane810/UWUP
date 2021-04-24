@@ -2,25 +2,45 @@
 
 #include <arpa/inet.h>
 #include <chrono>
+#include <cstring>
+#include <iostream>
 #include <netdb.h>
 #include <sys/types.h>
 
 Packet PortHandler::recvPacketFrom(std::string address, int port) {
-    if (!address_map[{address, port}].empty()) {
-        m_address_map.lock();
-        Packet p = address_map[{address, port}].front();
-        address_map[{address, port}].pop();
-        m_address_map.unlock();
-        return p;
-    } else {
-        throw("No Packet in Queue");
+    std::unique_lock<std::mutex> am_lock(m_address_map);
+    // if the message accesses are getting messed up, then I shouldn't wait on
+    // this one mutex.
+    while (address_map[{address, port}].empty())
+        cv_address_map_queue_isEmpty[{address, port}].wait(am_lock);
+    Packet p = address_map[{address, port}].front();
+    address_map[{address, port}].pop();
+    return p;
+}
+
+Packet PortHandler::recvPacketFrom(std::string address, int port, int time_ms) {
+    std::unique_lock<std::mutex> am_lock(m_address_map);
+    // if the message accesses are getting messed up, then I shouldn't wait on
+    // this one mutex.
+    while (address_map[{address, port}].empty()) {
+        if (cv_address_map_queue_isEmpty[{address, port}].wait_for(
+                am_lock, std::chrono::milliseconds(time_ms)) ==
+            std::cv_status::timeout) {
+            throw timeout_exception("recv packet");
+        }
     }
+    Packet p = address_map[{address, port}].front();
+    address_map[{address, port}].pop();
+    return p;
 }
 
 void PortHandler::sendPacketTo(Packet packet, std::string address, int port) {
-    m_send_queue.lock();
+    std::unique_lock<std::mutex> sq_lock(m_send_queue);
+    // sq_lock.lock();
+    // std::cout << packet << std::endl;
     send_queue.push({packet, {address, port}});
-    m_send_queue.unlock();
+    sq_lock.unlock();
+    cv_send_queue_isEmpty.notify_one();
 }
 
 void PortHandler::recvThreadFunction() {
@@ -34,18 +54,26 @@ void PortHandler::recvThreadFunction() {
                            (socklen_t *)&src_len);
         if (len < 0)
             continue;
+        int port = htons(src_addr.sin_port);
         std::string address = inet_ntoa(src_addr.sin_addr);
         // Could be ntohs
-        int port = htons(src_addr.sin_port);
-        m_address_map.lock();
+        // std::cout << "Recv Packet\n" << Packet(buff, len) << std::endl;
+        std::unique_lock<std::mutex> am_lock(m_address_map);
+
         if (address_map.find({address, port}) != address_map.end()) {
             address_map[{address, port}].push(Packet(buff, len));
-            m_address_map.unlock();
+            am_lock.unlock();
+            cv_address_map_queue_isEmpty[{address, port}].notify_one();
         } else {
-            m_address_map.unlock();
-            m_connect_queue.lock();
+            am_lock.unlock();
+            // Locks when constructor is called.
+            std::unique_lock<std::mutex> cq_lock(m_connect_queue);
+            if (connect_queue.size() >= MAX_WAITING_REQUEST) {
+                // Reject Client
+            }
             connect_queue.push({{address, port}, Packet(buff, len)});
-            m_connect_queue.unlock();
+            cq_lock.unlock();
+            cv_connect_queue_isEmpty.notify_one();
         }
 
         if (threadEnd) {
@@ -56,24 +84,32 @@ void PortHandler::recvThreadFunction() {
 
 void PortHandler::sendThreadFunction() {
     while (1) {
-        m_send_queue.lock();
-        if (!send_queue.empty()) {
-            char *data = (char *)send_queue.front().first.packet_struct;
-            int len = send_queue.front().first.packet_length;
-            std::string to_address = send_queue.front().second.first;
-            int to_port = send_queue.front().second.second;
-            send_queue.pop();
-            m_send_queue.unlock();
-            sockaddr_in dest_addr;
-            int dest_len = sizeof(dest_addr);
-            dest_addr.sin_family = AF_INET;
-            inet_pton(AF_INET, to_address.c_str(), &dest_addr.sin_addr);
-            dest_addr.sin_port = htons(to_port);
-            sendto(sockfd, data, len, 0, (sockaddr *)&dest_addr,
-                   (socklen_t)sizeof(dest_addr));
-        } else {
-            m_send_queue.unlock();
+
+        std::unique_lock<std::mutex> sq_lock(m_send_queue);
+        while (send_queue.empty()) {
+            cv_send_queue_isEmpty.wait(sq_lock);
         }
+        // std::cout << send_queue.size() << std::endl;
+        // char *data = (char *)send_queue.front().first.packet_struct;
+        Packet packet = send_queue.front().first;
+        char *data = (char *)packet.packet_struct;
+        int len = send_queue.front().first.packet_length;
+        std::string to_address = send_queue.front().second.first;
+        int to_port = send_queue.front().second.second;
+        send_queue.pop();
+        sq_lock.unlock();
+        sockaddr_in dest_addr;
+        dest_addr.sin_family = AF_INET;
+        // dest_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+        inet_pton(AF_INET, to_address.c_str(), &dest_addr.sin_addr);
+        dest_addr.sin_port = htons(to_port);
+        // Packet tempPack(data, len);
+        // std::cout << "Sent Packet" << to_address << ' ' << to_port <<
+        // tempPack
+        //           << std::endl;
+        sendto(sockfd, data, len, 0, (sockaddr *)&dest_addr,
+               (socklen_t)sizeof(dest_addr));
+        // This may not run. Use another condition variable?
         if (threadEnd) {
             break;
         }
@@ -92,27 +128,23 @@ PortHandler::~PortHandler() {
 }
 
 void PortHandler::makeAddressConnected(std::string address, int port) {
-    m_address_map.lock();
+    std::unique_lock<std::mutex> am_lock(m_address_map);
     address_map[{address, port}] = std::queue<Packet>();
-    m_address_map.unlock();
 }
 
+void PortHandler::deleteAddressQueue(std::string address, int port) {
+    std::unique_lock<std::mutex> am_lock(m_address_map);
+    address_map.erase({address, port});
+}
+
+// Make this blocking somehow? Maybe have a mutex on the length of the queue?
 std::pair<std::pair<std::string, int>, Packet> PortHandler::getNewConnection() {
-    auto start = std::chrono::high_resolution_clock::now();
-    while (1) {
-        auto curr = std::chrono::high_resolution_clock::now();
-        if (std::chrono::duration_cast<std::chrono::seconds>(curr - start)
-                .count() > 10) {
-            throw("Accept Timed Out");
-        }
-        m_connect_queue.lock();
-        if (!connect_queue.empty()) {
-            std::pair<std::pair<std::string, int>, Packet> new_connection =
-                connect_queue.front();
-            connect_queue.pop();
-            m_connect_queue.unlock();
-            return new_connection;
-        }
-        m_connect_queue.unlock();
-    }
+    std::unique_lock<std::mutex> cq_lock(m_connect_queue);
+    while (connect_queue.empty())
+        cv_connect_queue_isEmpty.wait(cq_lock);
+    std::pair<std::pair<std::string, int>, Packet> new_connection =
+        connect_queue.front();
+    connect_queue.pop();
+    cq_lock.unlock();
+    return new_connection;
 }
